@@ -14,21 +14,26 @@ from i3d import InceptionI3d as I3D              #  I3D
 import dataset                                   #  Task Generator
 import utils                                     #  Helper Functions
 
+from torch.utils.tensorboard import SummaryWriter 
+
 # Arguments Parser setup
 parser = argparse.ArgumentParser()                                              #
 parser.add_argument("-e","--episode",type = int, default= 10000)                #
 parser.add_argument("-t","--test_episode", type = int, default = 100)           #
 parser.add_argument("-w","--class_num",type = int, default = 3)                 # For definition
 parser.add_argument("-s","--sample_num_per_class",type = int, default = 5)      # Check #Constant#
-parser.add_argument("-b","--batch_num_per_class",type = int, default = 5)       #
+parser.add_argument("-b","--batch_num_per_class",type = int, default = 1)       #
 parser.add_argument("-l","--learning_rate", type = float, default = 0.001)      # 
 parser.add_argument("-n","--num_frame_per_video",type = int, default = 32)      #
 
 # Parse arguments
 args = parser.parse_args()
 
+# repo to store the tensorflow record
+writer = SummaryWriter("/home/xiaoyuan/tensorboard_res")
+
 # Constant
-FEATURE_DIM = 1024 #TODO
+FEATURE_DIM = 512 #TODO
 RELATION_DIM = 32 #TODO
 CLASS_NUM = args.class_num                             # <X>-way
 SAMPLE_NUM_PER_CLASS = args.sample_num_per_class       # <Y>-shot
@@ -38,18 +43,18 @@ TEST_EPISODE = args.test_episode                       # Num of testing episode
 LEARNING_RATE = args.learning_rate                     # Learning rate
 NUM_FRAME_PER_VIDEO = args.num_frame_per_video         # Num of frame in each video
 NUM_INST = 10
-DATA_FOLDER = "/data/ssongad/hmdb51/yolo_frame/"
+DATA_FOLDER = "./yolo_frame/"
 encoder_saved_model = "" #"/data/ssongad/codes/model_naive/models/HAA/encoder_3way_5shot_0.664.pkl"
 rn_saved_model = ""      #"/data/ssongad/codes/model_naive/models/HAA/rn_3way_5shot_0.664.pkl"
 # Device to be used
-# os.environ['CUDA_VISIBLE_DEVICES']="0"             # GPU to be used
+os.environ['CUDA_VISIBLE_DEVICES']="0,1"             # GPU to be used
 device = torch.device('cuda')#:'+str(gpu_index))
 
 def main():
 
     # i3d == the I3D network
     encoder = I3D(in_channels=3)
-    # encoder = nn.DataParallel(encoder)
+    encoder = nn.DataParallel(encoder)
     # rn == the relation network
     rn = RN(FEATURE_DIM,RELATION_DIM)
 
@@ -104,12 +109,16 @@ def main():
         batches = torch.transpose(batches,0,1)                                         # TODO   
         relations = torch.cat((samples,batches),2).view(-1,FEATURE_DIM*2,8,8)   #
         relations = rn(relations).view(-1,CLASS_NUM)
-        return                                                 #
+        # return                                                 #
 
         # Compute Loss
         mse = nn.MSELoss().to(device)                                                                                                       #
         one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1).to(device)) # TODO
         loss = mse(relations,one_hot_labels)                                                                                                #
+
+     
+        if episode % 200:
+            writer.add_scalar('Train/mse_loss', loss, episode)
 
         # Train Model
         encoder.zero_grad()
@@ -171,6 +180,8 @@ def main():
                 # Overall accuracy
                 test_accuracy, _ = utils.mean_confidence_interval(accuracies)
                 print("Test_Accu = {}".format(test_accuracy))
+              
+                writer.add_scalar('Test/accuracy', np.average(test_accuracy), epoch)
 
                 # Save Model
                 if test_accuracy > max_accuracy:
