@@ -25,7 +25,7 @@ def weights_init(m):
 
 # Relation Network Module
 class RelationNetwork(nn.Module):
-    def __init__(self,input_size,hidden_size):
+    def __init__(self,input_size, hidden_size):
         super(RelationNetwork, self).__init__()
         self.layer1 = nn.Sequential(
                         nn.Conv2d(input_size*2,input_size,kernel_size=1,padding=0),
@@ -37,20 +37,18 @@ class RelationNetwork(nn.Module):
                         nn.BatchNorm2d(input_size, momentum=1, affine=True),
                         nn.ReLU(),
                         nn.MaxPool2d(2))
-        self.fc1 = nn.Linear(1024, 256)#input_size*3*3,hidden_size)
-        self.fc2 = nn.Linear(256, hidden_size)
-        self.fc3 = nn.Linear(hidden_size,1)
+        self.fc1 = nn.Linear(32, hidden_size)
+        self.fc2 = nn.Linear(hidden_size,1)
 
         # Initialize itself
         self.apply(weights_init)
 
-    def forward(self,x):
+    def forward(self,x):    
         out = self.layer1(x)
         out = self.layer2(out)
         out = out.view(out.size(0),-1)
         out = nn.functional.relu(self.fc1(out))
-        out = nn.functional.relu(self.fc2(out))
-        out = torch.sigmoid(self.fc3(out))
+        out = torch.sigmoid(self.fc2(out))
         return out
 
 class CNNEncoder(nn.Module):

@@ -188,12 +188,12 @@ class InceptionI3d(nn.Module):
         # 'MaxPool3d_5a_2x2'
         self.l14 = MaxPool3dSamePadding(kernel_size=[2, 2, 2], stride=(2, 2, 2), padding=0)
 
-        # 'Mixed_5b'
-        self.l15 = InceptionModule(256+320+128+128, [256,160,320,32,128,128])
+        # # 'Mixed_5b'
+        # self.l15 = InceptionModule(256+320+128+128, [256,160,320,32,128,128])
 
-        # 'Mixed_5c'
-        # self.l16 = InceptionModule(256+320+128+128, [384,192,384,48,128,128])
-        self.l16 = InceptionModule(256+320+128+128, [96, 48, 96, 12, 32, 32])
+        # # 'Mixed_5c'
+        # # self.l16 = InceptionModule(256+320+128+128, [384,192,384,48,128,128])
+        # self.l16 = InceptionModule(256+320+128+128, [96, 48, 96, 12, 32, 32])
 
       
     def forward(self, x):
@@ -211,8 +211,6 @@ class InceptionI3d(nn.Module):
         x = self.l12(x)
         x = self.l13(x)
         x = self.l14(x)
-        x = self.l15(x)
-        x = self.l16(x)
 
         return x
         
