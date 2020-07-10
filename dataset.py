@@ -86,10 +86,11 @@ class HAADataset(Dataset):
 
 class ClassBalancedSampler(Sampler):
 
-    def __init__(self, num_per_class, num_cl, num_inst):
+    def __init__(self, num_per_class, num_cl, num_inst, shuffle):
         self.num_per_class = num_per_class
         self.num_cl = num_cl
         self.num_inst = num_inst
+        self.shuffle = shuffle
 
     def __iter__(self):
         # return a single list of indices, assuming that items will be grouped by class
@@ -103,13 +104,17 @@ class ClassBalancedSampler(Sampler):
             batch.append(sublist)
 
         batch = [item for sublist in batch for item in sublist]
+
+        if self.shuffle:
+            random.shuffle(batch)
+
         return iter(batch)
 
     def __len__(self):
         return 1
 
-def get_HAA_data_loader(dataset, num_per_class):
-    sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst)
+def get_HAA_data_loader(dataset, num_per_class, shuffle=False):
+    sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst, shuffle)
     loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=16)
     return loader
 
