@@ -22,7 +22,7 @@ import utils                                     #  Helper Functions
 # parser.add_argument("-w","--class_num",type = int, default = 5)                 # For definition
 # parser.add_argument("-s","--sample_num_per_class",type = int, default = 1)      # Check #Constant#
 # parser.add_argument("-b","--batch_num_per_class",type = int, default = 3)       #
-# parser.add_argument("-l","--learning_rate", type = float, default = 0.001)      # 
+# parser.add_argument("-l","--learning_rate", type = float, default = 0.001)      #
 # parser.add_argument("-n","--num_frame_per_clip",type = int, default = 32)       #
 
 # # Parse arguments
@@ -31,11 +31,11 @@ import utils                                     #  Helper Functions
 # Constant
 FEATURE_DIM = 32                         # Dim of output of encoder
 RELATION_DIM = 16                        # Dim of one layer of relation net
-CLASS_NUM = 5                            # <X>-way
-SAMPLE_NUM_PER_CLASS = 1                 # <Y>-shot
-BATCH_NUM_PER_CLASS = 3                  # Batch size
+CLASS_NUM = 3                            # <X>-way
+SAMPLE_NUM_PER_CLASS = 5                 # <Y>-shot
+BATCH_NUM_PER_CLASS = 5                  # Batch size
 EPISODE = 20000                          # Num of training episode 
-TEST_EPISODE = 100                       # Num of testing episode
+TEST_EPISODE = 50                        # Num of testing episode
 LEARNING_RATE = 0.001                    # Initial learning rate
 NUM_FRAME_PER_CLIP = 16                  # Num of frame in each clip
 SEQ_LEN = 3                              # Sequence Length for LSTM
@@ -45,7 +45,7 @@ encoder_saved_model = ""                                          # Path of save
 rn_saved_model = ""                                               # Path of saved relation net model
 lstm_saved_model = ""                                             # Path of saved lstm model
 # Device to be used
-os.environ['CUDA_VISIBLE_DEVICES']="1,2,3"                        # GPU to be used
+os.environ['CUDA_VISIBLE_DEVICES']="2,1"                        # GPU to be used
 device = torch.device('cuda')
 
 def main():
@@ -62,6 +62,7 @@ def main():
     encoder.to(device)
     rn.to(device)
     lstm.to(device)
+    mse = nn.MSELoss().to(device)
 
     # Define Optimizer
     encoder_optim = torch.optim.Adam(encoder.parameters(),lr=LEARNING_RATE)
@@ -93,9 +94,9 @@ def main():
 
         # Setup Data #TODO
         haaDataset = dataset.HAADataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, SEQ_LEN)
-        print("Classes", haaDataset.class_names)
+        # print("Classes", haaDataset.class_names, end="\t")
         sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
-        batch_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS)
+        batch_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
         samples, _ = sample_dataloader.__iter__().next()
         batches,batch_labels = batch_dataloader.__iter__().next()
 
@@ -109,8 +110,12 @@ def main():
         batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,SEQ_LEN,-1)
 
         # LSTM Processing
-        samples, _ = lstm(samples)
-        batches, _ = lstm(batches)
+        samples_hidden = torch.rand(2,CLASS_NUM,864).to(device)
+        samples_cell = torch.rand(2,CLASS_NUM,864).to(device)
+        batches_hidden = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
+        batches_cell = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
+        samples, _ = lstm(samples, (samples_hidden,samples_cell))
+        batches, _ = lstm(batches, (batches_hidden,batches_cell))
 
         # Compute Relation
         samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1)
@@ -121,9 +126,9 @@ def main():
         relations = rn(relations).view(-1,CLASS_NUM)
 
         # Compute Loss
-        mse = nn.MSELoss().to(device)
         one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1).to(device))
         loss = mse(relations,one_hot_labels)
+        print("Loss = {}".format(loss))
 
         # Train Model
         encoder.zero_grad()
@@ -133,6 +138,7 @@ def main():
 
         nn.utils.clip_grad_norm(encoder.parameters(),0.5)
         nn.utils.clip_grad_norm(rn.parameters(),0.5)
+        nn.utils.clip_grad_norm(lstm.parameters(),0.5)
 
         encoder_optim.step()
         rn_optim.step()
@@ -140,7 +146,7 @@ def main():
 
         # Periodically Print Loss #TODO
 
-        # Testing
+        # Validation
         if (episode % 200 == 0 and episode != 0) or episode == EPISODE-1:
             with torch.no_grad():
                 accuracies = []
@@ -154,7 +160,7 @@ def main():
                     haaDataset = dataset.HAADataset(DATA_FOLDER, "test", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, SEQ_LEN)
                     print("Classes", haaDataset.class_names)
                     sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
-                    test_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS)
+                    test_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
                     samples, _ = sample_dataloader.__iter__().next()
                     batches, batches_labels = test_dataloader.__iter__().next()
                     
@@ -168,8 +174,12 @@ def main():
                     batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,SEQ_LEN,-1)
 
                     # LSTM Processing
-                    samples, _ = lstm(samples)
-                    batches, _ = lstm(batches)  
+                    samples_hidden = torch.rand(2,CLASS_NUM,864).to(device)
+                    samples_cell = torch.rand(2,CLASS_NUM,864).to(device)
+                    batches_hidden = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
+                    batches_cell = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
+                    samples, _ = lstm(samples, (samples_hidden,samples_cell))
+                    batches, _ = lstm(batches, (batches_hidden,batches_cell))
 
                     # Compute Relation
                     samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1)
