@@ -36,7 +36,10 @@ SAMPLE_NUM_PER_CLASS = 5                 # <Y>-shot
 BATCH_NUM_PER_CLASS = 5                  # Batch size
 EPISODE = 20000                          # Num of training episode 
 TEST_EPISODE = 50                        # Num of testing episode
-LEARNING_RATE = 0.001                    # Initial learning rate
+# LEARNING_RATE = 0.001                    # Initial learning rate
+RN_LEARNING_RATE = 0.003
+LSTM_LEARNING_RATE = 0.003
+I3D_LEARNING_RATE = 0.003
 NUM_FRAME_PER_CLIP = 16                  # Num of frame in each clip
 SEQ_LEN = 3                              # Sequence Length for LSTM
 NUM_INST = 10                            # Num of videos selected in each class
@@ -65,14 +68,14 @@ def main():
     mse = nn.MSELoss().to(device)
 
     # Define Optimizer
-    encoder_optim = torch.optim.Adam(encoder.parameters(),lr=LEARNING_RATE)
-    rn_optim = torch.optim.Adam(rn.parameters(),lr=LEARNING_RATE)
-    lstm_optim = torch.optim.Adam(rn.parameters(),lr=LEARNING_RATE)
+    encoder_optim = torch.optim.Adam(encoder.parameters(),lr=I3D_LEARNING_RATE)
+    rn_optim = torch.optim.Adam(rn.parameters(),lr=RN_LEARNING_RATE)
+    lstm_optim = torch.optim.Adam(lstm.parameters(),lr=LSTM_LEARNING_RATE)
 
     # Define Scheduler
-    encoder_scheduler = StepLR(encoder_optim,step_size=100000,gamma=0.5)
-    rn_scheduler = StepLR(rn_optim,step_size=100000,gamma=0.5)
-    lstm_scheduler = StepLR(rn_optim,step_size=100000,gamma=0.5)
+    encoder_scheduler = StepLR(encoder_optim,step_size=400,gamma=0.1)
+    rn_scheduler = StepLR(rn_optim,step_size=400,gamma=0.1)
+    lstm_scheduler = StepLR(lstm_optim,step_size=400,gamma=0.1)
 
     # Load Saved Model
     if encoder_saved_model != "":
