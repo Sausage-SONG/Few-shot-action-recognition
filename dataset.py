@@ -11,7 +11,11 @@ import random                                        #  OS
 import os                                            #
 
 class HAADataset(Dataset):
+<<<<<<< Updated upstream
     def __init__(self, data_folder, mode, class_num, video_num, num_inst, frame_num):
+=======
+    def __init__(self, data_folder, mode, class_num, video_num, num_inst, frame_num, clip_num):
+>>>>>>> Stashed changes
         self.mode = mode
         assert mode in ["train", "test"]
 
@@ -19,6 +23,10 @@ class HAADataset(Dataset):
         self.video_num = video_num
         self.num_inst = num_inst
         self.frame_num = frame_num
+<<<<<<< Updated upstream
+=======
+        self.clip_num = clip_num
+>>>>>>> Stashed changes
         self.data_folder = os.path.join(data_folder, mode)
 
         all_class_names = os.listdir(self.data_folder)
@@ -58,6 +66,7 @@ class HAADataset(Dataset):
         all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
         all_frames.sort()
 
+<<<<<<< Updated upstream
         # if self.mode == "train":
 
         i = np.random.randint(0, max(1, len(all_frames) - self.frame_num))
@@ -66,6 +75,14 @@ class HAADataset(Dataset):
         if len(selected_frames) < self.frame_num:
             tmp = selected_frames[-1]
             for _ in range(self.frame_num - len(selected_frames)):
+=======
+        i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
+        selected_frames = list(all_frames[i:i+self.frame_num])
+
+        if len(selected_frames) < self.frame_num*self.clip_num:
+            tmp = selected_frames[-1]
+            for _ in range(self.frame_num*self.clip_num - len(selected_frames)):
+>>>>>>> Stashed changes
                 selected_frames.append(tmp)
         # else:
         #     selected_frames = all_frames.copy()

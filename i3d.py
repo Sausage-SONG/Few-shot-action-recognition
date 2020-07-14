@@ -146,19 +146,19 @@ class InceptionI3d(nn.Module):
         super(InceptionI3d, self).__init__()
 
         
-        # 'Conv3d_1a_7x7'
+        'Conv3d_1a_7x7'
         self.l1 = Unit3D(in_channels=in_channels, output_channels=64, kernel_shape=[7, 7, 7], stride=(2, 2, 2), padding=(3,3,3))
         
-        # 'MaxPool3d_2a_3x3'
+        'MaxPool3d_2a_3x3'
         self.l2 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         
-        # 'Conv3d_2b_1x1'
+        'Conv3d_2b_1x1'
         self.l3 = Unit3D(in_channels=64, output_channels=64, kernel_shape=[1, 1, 1], padding=0)
       
-        # 'Conv3d_2c_3x3'
+        'Conv3d_2c_3x3'
         self.l4 = Unit3D(in_channels=64, output_channels=192, kernel_shape=[3, 3, 3], padding=1)
 
-        # 'MaxPool3d_3a_3x3'
+        'MaxPool3d_3a_3x3'
         self.l5 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         
         # 'Mixed_3b'
@@ -211,8 +211,13 @@ class InceptionI3d(nn.Module):
         x = self.l12(x)
         x = self.l13(x)
         x = self.l14(x)
+<<<<<<< Updated upstream
         x = self.l15(x)
         x = self.l16(x)
+=======
+        # x = self.l15(x)
+        # x = self.l16(x)
+>>>>>>> Stashed changes
 
         return x
         
