@@ -11,11 +11,7 @@ import random                                        #  OS
 import os                                            #
 
 class HAADataset(Dataset):
-<<<<<<< Updated upstream
-    def __init__(self, data_folder, mode, class_num, video_num, num_inst, frame_num):
-=======
     def __init__(self, data_folder, mode, class_num, video_num, num_inst, frame_num, clip_num):
->>>>>>> Stashed changes
         self.mode = mode
         assert mode in ["train", "test"]
 
@@ -23,10 +19,7 @@ class HAADataset(Dataset):
         self.video_num = video_num
         self.num_inst = num_inst
         self.frame_num = frame_num
-<<<<<<< Updated upstream
-=======
         self.clip_num = clip_num
->>>>>>> Stashed changes
         self.data_folder = os.path.join(data_folder, mode)
 
         all_class_names = os.listdir(self.data_folder)
@@ -66,50 +59,38 @@ class HAADataset(Dataset):
         all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
         all_frames.sort()
 
-<<<<<<< Updated upstream
-        # if self.mode == "train":
-
-        i = np.random.randint(0, max(1, len(all_frames) - self.frame_num))
-        selected_frames = list(all_frames[i:i+self.frame_num])
-
-        if len(selected_frames) < self.frame_num:
-            tmp = selected_frames[-1]
-            for _ in range(self.frame_num - len(selected_frames)):
-=======
         i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
         selected_frames = list(all_frames[i:i+self.frame_num])
 
         if len(selected_frames) < self.frame_num*self.clip_num:
             tmp = selected_frames[-1]
             for _ in range(self.frame_num*self.clip_num - len(selected_frames)):
->>>>>>> Stashed changes
                 selected_frames.append(tmp)
-        # else:
-        #     selected_frames = all_frames.copy()
-        #     length_to_be_extended = self.frame_num - len(selected_frames) % self.frame_num
-        #     if length_to_be_extended < self.frame_num:
-        #         tmp = selected_frames[-1]
-        #         for _ in range(length_to_be_extended):
-        #             selected_frames.append(tmp)
 
         frames = []
-        for frame in selected_frames:
+        for i, frame in enumerate(selected_frames):
+            j = i % self.frame_num
+            if j == 0:
+                frames.append([])
+
             img = cv2.imread(frame)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            frames.append(img)
+            img = cv2.resize(img, (128,128))
+            frames[-1].append(img)
         
         frames = np.array(frames) / 127.5 - 1           # -1 to 1 # [num_frame, h, w, channel]
-        frames = np.transpose(frames, (3, 0, 1, 2))
+        frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [video_clip, RGB, frame_num, H, W]
         frames = torch.Tensor(frames.copy())
 
         return frames, video_label
 
 class ClassBalancedSampler(Sampler):
 
-    def __init__(self, num_per_class, num_cl, num_inst):
+    def __init__(self, num_per_class, num_cl, num_inst, shuffle):
         self.num_per_class = num_per_class
         self.num_cl = num_cl
         self.num_inst = num_inst
+        self.shuffle = shuffle
 
     def __iter__(self):
         # return a single list of indices, assuming that items will be grouped by class
@@ -123,13 +104,17 @@ class ClassBalancedSampler(Sampler):
             batch.append(sublist)
 
         batch = [item for sublist in batch for item in sublist]
+
+        if self.shuffle:
+            random.shuffle(batch)
+
         return iter(batch)
 
     def __len__(self):
         return 1
 
-def get_HAA_data_loader(dataset, num_per_class):
-    sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst)
-    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=3)
+def get_HAA_data_loader(dataset, num_per_class, shuffle=False):
+    sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst, shuffle)
+    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=16)
     return loader
 
