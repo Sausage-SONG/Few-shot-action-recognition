@@ -1,10 +1,8 @@
 # Public Packages
 import torch                                     #
 import torch.nn as nn                            #  Pytorch
-from torch.optim.lr_scheduler import StepLR      #
 from torch.autograd import Variable              #
 
-import argparse                                  #  Argument
 import numpy as np                               #  Numpy
 import os                                        #  OS
 import sys
@@ -12,89 +10,92 @@ import sys
 # Local Packages
 from relationNet import RelationNetwork as RN    #  Relation Network
 from i3d import InceptionI3d as I3D              #  I3D
+from i3d import Simple3DEncoder as C3D           #  Conv3D
+from tcn import TemporalConvNet as TCN           #  TCN
 import dataset                                   #  Task Generator
 import utils                                     #  Helper Functions
 
-# Constant
-FEATURE_DIM = 32                         # Dim of output of encoder
-RELATION_DIM = 16                        # Dim of one layer of relation net
-CLASS_NUM = 3                            # <X>-way
-SAMPLE_NUM_PER_CLASS = 5                 # <Y>-shot
-BATCH_NUM_PER_CLASS = 5                  # Batch size
-TEST_EPISODE = 100                       # Num of testing episode
-NUM_FRAME_PER_CLIP = 16                  # Num of frame in each clip
-SEQ_LEN = 3                              # Sequence Length for LSTM
-NUM_INST = 10                            # Num of videos selected in each class
-DATA_FOLDER = "/data/ssongad/haa/new_normalized_frame/"                # Data path
-encoder_saved_model = "/data/ssongad/codes/lstm/models/wrong_optim/encoder_3way_5shot_0.8093333333333333.pkl"                                          # Path of saved encoder model
-rn_saved_model = "/data/ssongad/codes/lstm/models/wrong_optim/rn_3way_5shot_0.8093333333333333.pkl"                                               # Path of saved relation net model
-lstm_saved_model = "/data/ssongad/codes/lstm/models/wrong_optim/lstm_3way_5shot_0.8093333333333333.pkl"                                             # Path of saved lstm model
+# Constant (Settings)
+TCN_OUT_CHANNEL = 64                    # Num of channels of output of TCN
+RELATION_DIM = 32                       # Dim of one layer of relation net
+CLASS_NUM = 3                           # <X>-way  | Num of classes
+SAMPLE_NUM_PER_CLASS = 5                # <Y>-shot | Num of supports per class
+BATCH_NUM_PER_CLASS = 5                 # Num of instances for validation per class
+TEST_EPISODE = 200                      # Num of validation episode
+NUM_FRAME_PER_CLIP = 10                 # Num of frames per clip
+NUM_CLIP = 5                            # Num of clips per video
+NUM_INST = 10                           # Num of videos selected in each class
+
+DATA_FOLDER = "/data/ssongad/haa/new_normalized_frame/"           # Data path
+encoder_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/encoder_0.7466666666666667.pkl"       # Path of saved encoder model
+rn_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/rn_0.7466666666666667.pkl"                 # Path of saved relation net model
+tcn_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/tcn_0.7466666666666667.pkl"               # Path of saved tcn model
+
 # Device to be used
-os.environ['CUDA_VISIBLE_DEVICES']="3,7"                        # GPU to be used
+os.environ['CUDA_VISIBLE_DEVICES']="3,7"                          # GPU to be used
 device = torch.device('cuda')
 
 def main():
 
-    # i3d == the I3D network
-    encoder = I3D(in_channels=3)
+    # Define models
+    # encoder = I3D(in_channels=3)
+    encoder = C3D(in_channels=3)
     encoder = nn.DataParallel(encoder)
-    # rn == the relation network
-    rn = RN(FEATURE_DIM,RELATION_DIM)
-    # lstm == LSTM
-    lstm = nn.LSTM(26624, 864, 2, batch_first=True)
+    rn = RN(NUM_CLIP,RELATION_DIM)
+    tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
+    mse = nn.MSELoss()
 
-    # Move the model to GPU
+    # Move models to GPU
     encoder.to(device)
     rn.to(device)
-    lstm.to(device)
+    tcn.to(device)
+    mse.to(device)
 
     # Load Saved Model
     if encoder_saved_model != "":
         encoder.load_state_dict(torch.load(encoder_saved_model))
     if rn_saved_model != "":
         rn.load_state_dict(torch.load(rn_saved_model))
-    if lstm_saved_model != "":
-        lstm.load_state_dict(torch.load(lstm_saved_model))
+    if tcn_saved_model != "":
+        tcn.load_state_dict(torch.load(tcn_saved_model))
 
-    # Validation
+    # Testing
     with torch.no_grad():
         accuracies = []
         for test_episode in range(TEST_EPISODE):
             print("Test_Epi[{}]".format(test_episode), end="\t")
             
-            # Data Loading #TODO
+            # Data Loading
             total_rewards = 0
-            total_num_tested = CLASS_NUM * BATCH_NUM_PER_CLASS
-            haaDataset = dataset.HAADataset(DATA_FOLDER, "test", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, SEQ_LEN)
-            print("Classes", haaDataset.class_names, end="\t")
+            total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
+            haaDataset = dataset.HAADataset(DATA_FOLDER, "test", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP)
             sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
-            test_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
+            val_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
             samples, _ = sample_dataloader.__iter__().next()
-            batches, batches_labels = test_dataloader.__iter__().next()
+            batches, batches_labels = val_dataloader.__iter__().next()
             
             # Encoding
-            samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*SEQ_LEN, 3, NUM_FRAME_PER_CLIP, 128, 128)
+            samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
             samples = encoder(Variable(samples).to(device))
-            samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,SEQ_LEN,-1)
+            samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,NUM_CLIP,-1)
             samples = torch.sum(samples,1).squeeze(1)
-            batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*SEQ_LEN, 3, NUM_FRAME_PER_CLIP, 128, 128)
+            batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
             batches = encoder(Variable(batches).to(device))
-            batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,SEQ_LEN,-1)
+            batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,NUM_CLIP,-1)
 
-            # LSTM Processing
-            samples_hidden = torch.rand(2,CLASS_NUM,864).to(device)
-            samples_cell = torch.rand(2,CLASS_NUM,864).to(device)
-            batches_hidden = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
-            batches_cell = torch.rand(2,CLASS_NUM*BATCH_NUM_PER_CLASS,864).to(device)
-            samples, _ = lstm(samples, (samples_hidden,samples_cell))
-            batches, _ = lstm(batches, (batches_hidden,batches_cell)) 
+            # TCN Processing
+            samples = torch.transpose(samples,1,2)
+            samples = tcn(samples)
+            samples = torch.transpose(samples,1,2)
+            batches = torch.transpose(batches,1,2)
+            batches = tcn(batches)
+            batches = torch.transpose(batches,1,2) #[batch, clip, feature]
 
             # Compute Relation
             samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1)
             batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
             batches = torch.transpose(batches,0,1)
-
-            relations = torch.cat((samples,batches),2).view(-1,FEATURE_DIM*2,9,9)
+            relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)
             relations = rn(relations).view(-1,CLASS_NUM)
 
             # Predict
