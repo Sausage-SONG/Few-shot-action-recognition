@@ -106,7 +106,7 @@ def main():
             total_rewards += np.sum(rewards)
 
             # Record accuracy
-            accuracy = total_rewards/1.0/total_num_tested
+            accuracy = total_rewards/total_num_covered
             accuracies.append(accuracy)
             print("Accuracy = {}".format(accuracy))
             print(batches_labels)
