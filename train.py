@@ -30,13 +30,14 @@ NUM_FRAME_PER_CLIP = 10                 # Num of frames per clip
 NUM_CLIP = 5                            # Num of clips per video
 NUM_INST = 10                           # Num of videos selected in each class
 
-EXP_NAMES = ["TCN_Simple3DEnconder_01"]
+EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY"]
 
-EXP_NAME = "TCN_Simple3DEnconder_01"                                # Name of this experiment
+EXP_NAME = "OCCUPY"                                               # Name of this experiment
 DATA_FOLDER = "/data/ssongad/haa/new_normalized_frame/"           # Data path
 encoder_saved_model = ""                                          # Path of saved encoder model
 rn_saved_model = ""                                               # Path of saved relation net model
 tcn_saved_model = ""                                              # Path of saved tcn model
+MAX_ACCURACY = 0                                                  # Accuracy of the loaded model
 
 # Device to be used
 os.environ['CUDA_VISIBLE_DEVICES']="3,7"                          # GPU to be used
@@ -76,7 +77,7 @@ def main():
     if tcn_saved_model != "":
         tcn.load_state_dict(torch.load(tcn_saved_model))
     
-    max_accuracy = 0                # Currently the best accuracy
+    max_accuracy = MAX_ACCURACY     # Currently the best accuracy
     accuracy_history = []           # Only for logging
 
     # Prepare output folder
@@ -158,11 +159,10 @@ def main():
                 for validation_episode in range(VALIDATION_EPISODE):
                     print("Val_Epi[{}] Pres_Accu = {}".format(validation_episode, max_accuracy), end="\t")
                     
-                    # Data Loading #TODO
+                    # Data Loading
                     total_rewards = 0
                     total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
                     haaDataset = dataset.HAADataset(DATA_FOLDER, "test", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP)
-                    print("Classes", haaDataset.class_names)
                     sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
                     val_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
                     samples, _ = sample_dataloader.__iter__().next()
@@ -202,11 +202,12 @@ def main():
                     # Record accuracy
                     accuracy = total_rewards/total_num_covered
                     accuracies.append(accuracy)
+                    print("Accu = {}".format(accuracy))
             
                 # Overall accuracy
                 val_accuracy, _ = utils.mean_confidence_interval(accuracies)
                 accuracy_history.append(val_accuracy)
-                print("Val_Accu = {}".format(val_accuracy))
+                print("Final Val_Accu = {}".format(val_accuracy))
 
                 # Write history
                 file = open("accuracy_log.txt", "w")
@@ -221,9 +222,10 @@ def main():
                     torch.save(tcn.state_dict(), output_folder + "tcn_"+str(val_accuracy)+".pkl")
 
                     max_accuracy = val_accuracy
-                    print("Model Saved with accuracy={}".format(max_accuracy))
+                    print("Models Saved with accuracy={}".format(max_accuracy))
     
-    print("final accuracy = {}".format(max_accuracy))
+    print("Training Done")
+    print("Final Accuracy = {}".format(max_accuracy))
 
 # Program Starts
 if __name__ == '__main__':
