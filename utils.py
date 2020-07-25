@@ -21,4 +21,11 @@ def mean_confidence_interval(data, confidence=0.95):
     m, se = np.mean(a), scipy.stats.sem(a)
     h = se * scipy.stats.t._ppf((1+confidence)/2., n-1)
     return m,h
+
+def compute_score(prediction, truth, length):
+    if truth in prediction:
+        zeros = np.count_nonzero(prediction == 0)
+        return zeros/(length-1)
+    else:
+        return 0
     

@@ -1,19 +1,16 @@
-# Public Packages
 import torch                                     #
 import torch.nn as nn                            #  Pytorch
 from torch.optim.lr_scheduler import StepLR      #
 from torch.autograd import Variable              #
 
 import numpy as np                               #  Numpy
-import os                                        #  
-import sys                                       #  OS
+import os                                        #  OS
 
-# Local Packages
-from relationNet import RelationNetwork as RN    #  Relation Network
-from i3d import InceptionI3d as I3D              #  I3D
+from relationNet import RelationNetwork as RN    #  Relation Net
+# from i3d import InceptionI3d as I3D            #  I3D
 from i3d import Simple3DEncoder as C3D           #  Conv3D
 from tcn import TemporalConvNet as TCN           #  TCN
-import dataset                                   #  Task Generator
+import dataset                                   #  Dataset
 import utils                                     #  Helper Functions
 
 # Constant (Settings)
@@ -21,43 +18,48 @@ TCN_OUT_CHANNEL = 64                    # Num of channels of output of TCN
 RELATION_DIM = 32                       # Dim of one layer of relation net
 CLASS_NUM = 3                           # <X>-way  | Num of classes
 SAMPLE_NUM_PER_CLASS = 5                # <Y>-shot | Num of supports per class
-BATCH_NUM_PER_CLASS = 5                 # Num of instances for validation per class
+BATCH_NUM_PER_CLASS = 3                 # Num of instances for validation per class
 TRAIN_EPISODE = 20000                   # Num of training episode 
 VALIDATION_EPISODE = 50                 # Num of validation episode
 VALIDATION_FREQUENCY = 200              # After each <X> training episodes, do validation once
 LEARNING_RATE = 0.001                   # Initial learning rate
 NUM_FRAME_PER_CLIP = 10                 # Num of frames per clip
-NUM_CLIP = 5                            # Num of clips per video
+NUM_CLIP = 5                            # Num of clips per window
+NUM_WINDOW = 3                          # Num of processing window per video
 NUM_INST = 10                           # Num of videos selected in each class
 
-EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY"]
+EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY", "TCN_Simple3DEnconder_CTC"]
 
-EXP_NAME = "OCCUPY"                                               # Name of this experiment
-DATA_FOLDER = "/data/ssongad/haa/new_normalized_frame/"           # Data path
-encoder_saved_model = ""                                          # Path of saved encoder model
-rn_saved_model = ""                                               # Path of saved relation net model
-tcn_saved_model = ""                                              # Path of saved tcn model
-MAX_ACCURACY = 0                                                  # Accuracy of the loaded model
+EXP_NAME = "TCN_Simple3DEnconder_CTC"                             # Name of this experiment
+DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        #
+                "/data/ssongad/haa/normalized_frame_scale2",      # Data path => [original, 2x, 3x]
+                "/data/ssongad/haa/normalized_frame_scale3"]      #
+
+encoder_saved_model = ""               # Path of saved encoder model
+rn_saved_model = ""                    # Path of saved relation net model
+tcn_saved_model = ""                   # Path of saved tcn model
+MAX_ACCURACY = 0                       # Accuracy of the loaded model
 
 # Device to be used
 os.environ['CUDA_VISIBLE_DEVICES']="3,7"                          # GPU to be used
-device = torch.device('cuda')
+device = torch.device('cuda')                                     #
+cpu = torch.device('cpu')
 
 def main():
-
     # Define models
-    # encoder = I3D(in_channels=3)
     encoder = C3D(in_channels=3)
     encoder = nn.DataParallel(encoder)
     rn = RN(NUM_CLIP,RELATION_DIM)
     tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
-    mse = nn.MSELoss()
+    ctc = nn.CTCLoss()
+    logSoftmax = nn.LogSoftmax(2)
 
     # Move models to GPU
     encoder.to(device)
     rn.to(device)
     tcn.to(device)
-    mse.to(device)
+    ctc.to(device)
+    logSoftmax.to(device)
 
     # Define Optimizer
     encoder_optim = torch.optim.Adam(encoder.parameters(),lr=LEARNING_RATE)
@@ -87,11 +89,17 @@ def main():
         output_folder = "./models/" + EXP_NAME + "/"
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
+    
+    # Do it only once, so moved here
+    input_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=NUM_WINDOW, dtype=torch.long).to(device)
+    target_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
+
+    skipped = 0
 
     # Training Loop
     for episode in range(TRAIN_EPISODE):
 
-        print("Train_Epi[{}] Pres_Accu = {}".format(episode, max_accuracy), end="\t")
+        print("Train_Epi[{}|{}] Pres_Accu = {}".format(episode, skipped, max_accuracy), end="\t")
 
         # Update "step" for scheduler
         rn_scheduler.step(episode)
@@ -99,40 +107,52 @@ def main():
         tcn_scheduler.step(episode)
 
         # Setup Data
-        haaDataset = dataset.HAADataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP)
-        # print("Classes", haaDataset.class_names, end="\t")
-        sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
-        batch_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
-        samples, _ = sample_dataloader.__iter__().next()
-        batches,batch_labels = batch_dataloader.__iter__().next()   # [batch, clip, RGB, frame, H, W]
+        haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+        haaDataset_query = dataset.HAADataset(DATA_FOLDERS, "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+        sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
+        batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
+        try:
+            samples, _ = sample_dataloader.__iter__().next()            # [batch, clip, RGB, frame, H, W]
+            batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
+        except BaseException:
+            skipped += 1
+            print("Skipped")
+            continue
 
         # Encoding
         samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
         samples = encoder(Variable(samples).to(device))
         samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,NUM_CLIP,-1)
-        samples = torch.sum(samples,1).squeeze(1)
-        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+        samples = torch.sum(samples,1).squeeze(1)                              # [class, clip, feature]
+
+        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
         batches = encoder(Variable(batches).to(device))
-        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,NUM_CLIP,-1)
+        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW,NUM_CLIP,-1) # [batch*window, clip, feature]
 
         # TCN Processing
-        samples = torch.transpose(samples,1,2)
+        samples = torch.transpose(samples,1,2)       # [class, feature(channel), clip(length)]
         samples = tcn(samples)
-        samples = torch.transpose(samples,1,2)
-        batches = torch.transpose(batches,1,2)
+        samples = torch.transpose(samples,1,2)       # [class, clip, feature]
+
+        batches = torch.transpose(batches,1,2)       # [batch*window, feature(channel), clip(length)]
         batches = tcn(batches)
-        batches = torch.transpose(batches,1,2) #[batch, clip, feature]
+        batches = torch.transpose(batches,1,2)       # [batch*window, clip, feature]
 
         # Compute Relation
-        samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1)
-        batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
-        batches = torch.transpose(batches,0,1)
-        relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)
-        relations = rn(relations).view(-1,CLASS_NUM)
+        samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1,1)
+        batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      # [batch*window, class, clip(length), feature(channel)]
+        batches = torch.transpose(batches,0,1)                      #
+        relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
+        relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+
+        # Generate final probabilities
+        tmp = 1 + relations * -1
+        blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
+        relations = torch.cat((blank_prob, relations), 2)              
+        final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), batch, class+1]
 
         # Compute Loss
-        one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1).to(device))
-        loss = mse(relations,one_hot_labels)
+        loss = ctc(final_outcome, batch_labels, input_lengths, target_lengths)
         print("Loss = {}".format(loss))
 
         # Back Propagation
@@ -160,43 +180,57 @@ def main():
                     print("Val_Epi[{}] Pres_Accu = {}".format(validation_episode, max_accuracy), end="\t")
                     
                     # Data Loading
+                    haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+                    haaDataset_query = dataset.HAADataset(DATA_FOLDERS, "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+                    sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
+                    batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
+                    try:
+                        samples, _ = sample_dataloader.__iter__().next()            # [batch, clip, RGB, frame, H, W]
+                        batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
+                    except BaseException:
+                        print("Skipped")
+                        continue
                     total_rewards = 0
                     total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
-                    haaDataset = dataset.HAADataset(DATA_FOLDER, "test", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP)
-                    sample_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=SAMPLE_NUM_PER_CLASS)
-                    val_dataloader = dataset.get_HAA_data_loader(haaDataset,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
-                    samples, _ = sample_dataloader.__iter__().next()
-                    batches, batches_labels = val_dataloader.__iter__().next()
-                    
+
                     # Encoding
                     samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
                     samples = encoder(Variable(samples).to(device))
                     samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,NUM_CLIP,-1)
-                    samples = torch.sum(samples,1).squeeze(1)
-                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+                    samples = torch.sum(samples,1).squeeze(1)                              # [class, clip, feature]
+
+                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
                     batches = encoder(Variable(batches).to(device))
-                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS,NUM_CLIP,-1)
+                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW,NUM_CLIP,-1) # [batch*window, clip, feature]
 
                     # TCN Processing
-                    samples = torch.transpose(samples,1,2)
+                    samples = torch.transpose(samples,1,2)       # [class, feature(channel), clip(length)]
                     samples = tcn(samples)
-                    samples = torch.transpose(samples,1,2)
-                    batches = torch.transpose(batches,1,2)
+                    samples = torch.transpose(samples,1,2)       # [class, clip, feature]
+
+                    batches = torch.transpose(batches,1,2)       # [batch*window, feature(channel), clip(length)]
                     batches = tcn(batches)
-                    batches = torch.transpose(batches,1,2) #[batch, clip, feature]
+                    batches = torch.transpose(batches,1,2)       # [batch*window, clip, feature]
 
                     # Compute Relation
-                    samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1)
-                    batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
-                    batches = torch.transpose(batches,0,1)
-                    relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)
-                    relations = rn(relations).view(-1,CLASS_NUM)
+                    samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1,1)
+                    batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      # [batch*window, class, clip(length), feature(channel)]
+                    batches = torch.transpose(batches,0,1)                      #
+                    relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
+                    relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+
+                    # Generate final probabilities
+                    tmp = 1 + relations * -1
+                    blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
+                    relations = torch.cat((relations, blank_prob), 2)            # [batch, window(length), class+1]        
 
                     # Predict
-                    _, predict_labels = torch.max(relations.data,1)
+                    _, predict_labels = torch.max(relations.data,2)
+                    predict_labels = predict_labels.cpu().numpy()
+                    batch_labels = batch_labels.cpu().numpy()
 
-                    # Counting Correct Ones
-                    rewards = [1 if predict_labels[j]==batches_labels[j] else 0 for j in range(len(predict_labels))]
+                    # Counting Correct Ones #TODO use ctc as score
+                    rewards = [utils.compute_score(prediction, truth, NUM_WINDOW) for prediction, truth in zip(predict_labels, batch_labels)]
                     total_rewards += np.sum(rewards)
 
                     # Record accuracy

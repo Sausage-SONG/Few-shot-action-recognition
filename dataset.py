@@ -11,33 +11,45 @@ import random                                        #  OS
 import os                                            #
 
 class HAADataset(Dataset):
-    def __init__(self, data_folder, mode, class_num, video_num, num_inst, frame_num, clip_num):
+    def __init__(self, data_folders, mode, video_type, class_num, video_num, num_inst, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "test"]
+        self.video_type = video_type
+        assert video_type in ["support", "query"]
 
         self.class_num = class_num
         self.video_num = video_num
         self.num_inst = num_inst
         self.frame_num = frame_num
         self.clip_num = clip_num
-        self.data_folder = os.path.join(data_folder, mode)
+        self.window_num = window_num
+        self.data_folder_1 = os.path.join(data_folders[0], mode)
+        self.data_folder_2 = os.path.join(data_folders[1], mode)
+        self.data_folder_3 = os.path.join(data_folders[2], mode)
 
-        all_class_names = os.listdir(self.data_folder)
+        all_class_names = os.listdir(self.data_folder_1)
         self.class_names = random.sample(all_class_names, self.class_num)
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
-            self.labels[class_name] = i
+            self.labels[class_name] = i+1
 
         self.video_folders = []
         self.video_labels = []
         for class_name in self.class_names:
             label = self.labels[class_name]
-            class_folder = os.path.join(self.data_folder, class_name)
-            video_names = os.listdir(class_folder)
+            class_folders = [os.path.join(self.data_folder_1, class_name), os.path.join(self.data_folder_2, class_name), os.path.join(self.data_folder_3, class_name)]
+            video_names = os.listdir(class_folders[0])
             random.shuffle(video_names)
             video_names = video_names[:self.num_inst]
+
             for video_name in video_names:
-                self.video_folders.append(os.path.join(class_folder, video_name))
+                if self.video_type == "support":
+                    self.video_folders.append(os.path.join(class_folders[0], video_name))
+                else:
+                    random_stretch = random.randint(1,5)
+                    random_stretch = max(0, random_stretch-3)
+                    self.video_folders.append(os.path.join(class_folders[random_stretch], video_name))
+
                 self.video_labels.append(label)
     
     def __str__(self):
@@ -59,13 +71,31 @@ class HAADataset(Dataset):
         all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
         all_frames.sort()
 
-        i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
-        selected_frames = list(all_frames[i:i+self.frame_num])
+        if self.video_type == "support":
+            i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
+            selected_frames = list(all_frames[i:i+self.frame_num])
 
-        if len(selected_frames) < self.frame_num*self.clip_num:
-            tmp = selected_frames[-1]
-            for _ in range(self.frame_num*self.clip_num - len(selected_frames)):
-                selected_frames.append(tmp)
+            if len(selected_frames) < self.frame_num*self.clip_num:
+                tmp = selected_frames[-1]
+                for _ in range(self.frame_num*self.clip_num - len(selected_frames)):
+                    selected_frames.append(tmp)
+        else:
+            length = len(all_frames)
+            stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
+            expected_length = (self.clip_num*self.window_num-1)*stride + self.frame_num
+            
+            # Deal with length difference
+            if expected_length <= length:
+                all_frames = all_frames[:expected_length]
+            else:
+                tmp = all_frames[-1]
+                for _ in range(expected_length - length):
+                    all_frames.append(tmp)
+            
+            selected_frames = []
+            for i in range(self.clip_num*self.window_num):
+                selected_frames.extend(all_frames[i*stride:i*stride+self.frame_num])
+            
 
         frames = []
         for i, frame in enumerate(selected_frames):
@@ -107,7 +137,7 @@ class ClassBalancedSampler(Sampler):
 
         if self.shuffle:
             random.shuffle(batch)
-
+        
         return iter(batch)
 
     def __len__(self):
@@ -115,6 +145,6 @@ class ClassBalancedSampler(Sampler):
 
 def get_HAA_data_loader(dataset, num_per_class, shuffle=False):
     sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst, shuffle)
-    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=16)
+    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=15)
     return loader
 

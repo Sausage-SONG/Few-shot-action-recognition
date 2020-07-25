@@ -19,7 +19,7 @@ import utils                                     #  Helper Functions
 TCN_OUT_CHANNEL = 64                    # Num of channels of output of TCN
 RELATION_DIM = 32                       # Dim of one layer of relation net
 CLASS_NUM = 3                           # <X>-way  | Num of classes
-SAMPLE_NUM_PER_CLASS = 5                # <Y>-shot | Num of supports per class
+SAMPLE_NUM_PER_CLASS = 7                # <Y>-shot | Num of supports per class
 BATCH_NUM_PER_CLASS = 5                 # Num of instances for validation per class
 TEST_EPISODE = 200                      # Num of validation episode
 NUM_FRAME_PER_CLIP = 10                 # Num of frames per clip
