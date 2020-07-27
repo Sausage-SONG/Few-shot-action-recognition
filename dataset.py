@@ -73,7 +73,7 @@ class HAADataset(Dataset):
 
         if self.video_type == "support":
             i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
-            selected_frames = list(all_frames[i:i+self.frame_num])
+            selected_frames = list(range(i, i+self.frame_num))           # list(all_frames[i:i+self.frame_num])
 
             if len(selected_frames) < self.frame_num*self.clip_num:
                 tmp = selected_frames[-1]
@@ -94,19 +94,24 @@ class HAADataset(Dataset):
             
             selected_frames = []
             for i in range(self.clip_num*self.window_num):
-                selected_frames.extend(all_frames[i*stride:i*stride+self.frame_num])
-            
+                selected_frames.extend(list(range(i*stride, i*stride+self.frame_num))) # all_frames[i*stride:i*stride+self.frame_num])
+        
+        # Process frames
+        processed_frames = []
+        for frame in all_frames:
+            img = cv2.imread(frame)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (128,128))
+            processed_frames.append(img)
 
         frames = []
-        for i, frame in enumerate(selected_frames):
+        for i, frame_idx in enumerate(selected_frames):
             j = i % self.frame_num
             if j == 0:
                 frames.append([])
 
-            img = cv2.imread(frame)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.resize(img, (128,128))
-            frames[-1].append(img)
+            frame = processed_frames[frame_idx].copy()
+            frames[-1].append(frame)
         
         frames = np.array(frames) / 127.5 - 1           # -1 to 1 # [num_frame, h, w, channel]
         frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [video_clip, RGB, frame_num, H, W]
@@ -147,4 +152,3 @@ def get_HAA_data_loader(dataset, num_per_class, shuffle=False):
     sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst, shuffle)
     loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=15)
     return loader
-
