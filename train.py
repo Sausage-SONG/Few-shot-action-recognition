@@ -35,17 +35,18 @@ DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        #
                 "/data/ssongad/haa/normalized_frame_scale2",      # Data path => [original, 2x, 3x]
                 "/data/ssongad/haa/normalized_frame_scale3"]      #
 
-encoder_saved_model = ""               # Path of saved encoder model
-rn_saved_model = ""                    # Path of saved relation net model
-tcn_saved_model = ""                   # Path of saved tcn model
+encoder_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/encoder_0.7466666666666667.pkl"          # Path of saved encoder model
+rn_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/rn_0.7466666666666667.pkl"                    # Path of saved relation net model
+tcn_saved_model = "/data/ssongad/codes/tcn/models/TCN_Simple3DEnconder_01/tcn_0.7466666666666667.pkl"                  # Path of saved tcn model
 MAX_ACCURACY = 0                       # Accuracy of the loaded model
 
 # Device to be used
 os.environ['CUDA_VISIBLE_DEVICES']="3,7"                          # GPU to be used
 device = torch.device('cuda')                                     #
-cpu = torch.device('cpu')
 
 def main():
+    utils.write_log("Experiment Name: {}\n".format(EXP_NAME))
+
     # Define models
     encoder = C3D(in_channels=3)
     encoder = nn.DataParallel(encoder)
@@ -100,11 +101,7 @@ def main():
     for episode in range(TRAIN_EPISODE):
 
         print("Train_Epi[{}|{}] Pres_Accu = {}".format(episode, skipped, max_accuracy), end="\t")
-
-        # Update "step" for scheduler
-        rn_scheduler.step(episode)
-        encoder_scheduler.step(episode)
-        tcn_scheduler.step(episode)
+        utils.write_log("Training Episode {} | ".format(episode), end="")
 
         # Setup Data
         haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
@@ -114,9 +111,10 @@ def main():
         try:
             samples, _ = sample_dataloader.__iter__().next()            # [batch, clip, RGB, frame, H, W]
             batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
-        except BaseException:
+        except Exception:
             skipped += 1
             print("Skipped")
+            utils.write_log("Data Loading Error | Total Error = {}".format(skipped))
             continue
 
         # Encoding
@@ -144,16 +142,18 @@ def main():
         batches = torch.transpose(batches,0,1)                      #
         relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
         relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+        relations = nn.functional.softmax(relations, 2)
 
         # Generate final probabilities
-        tmp = 1 + relations * -1
+        tmp = relations * 0.00001 #1 + relations * -1
         blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
-        relations = torch.cat((blank_prob, relations), 2)              
+        relations = torch.cat((blank_prob, relations), 2)
         final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), batch, class+1]
 
         # Compute Loss
         loss = ctc(final_outcome, batch_labels, input_lengths, target_lengths)
         print("Loss = {}".format(loss))
+        utils.write_log("Loss = {}".format(loss))
 
         # Back Propagation
         encoder.zero_grad()
@@ -171,14 +171,21 @@ def main():
         rn_optim.step()
         tcn_optim.step()
 
+        # Update "step" for scheduler
+        rn_scheduler.step()
+        encoder_scheduler.step()
+        tcn_scheduler.step()
+
         # Validation Loop
         if (episode % VALIDATION_FREQUENCY == 0 and episode != 0) or episode == TRAIN_EPISODE-1:
+            utils.write_log("\n")
             with torch.no_grad():
                 accuracies = []
 
                 for validation_episode in range(VALIDATION_EPISODE):
                     print("Val_Epi[{}] Pres_Accu = {}".format(validation_episode, max_accuracy), end="\t")
-                    
+                    utils.write_log("Validating Episode {} | ".format(validation_episode), end="")
+
                     # Data Loading
                     haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
                     haaDataset_query = dataset.HAADataset(DATA_FOLDERS, "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
@@ -187,8 +194,9 @@ def main():
                     try:
                         samples, _ = sample_dataloader.__iter__().next()            # [batch, clip, RGB, frame, H, W]
                         batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
-                    except BaseException:
+                    except Exception:
                         print("Skipped")
+                        utils.write_log("Data Loading Error")
                         continue
                     total_rewards = 0
                     total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
@@ -218,11 +226,12 @@ def main():
                     batches = torch.transpose(batches,0,1)                      #
                     relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
                     relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+                    relations = nn.functional.softmax(relations, 2)
 
                     # Generate final probabilities
-                    tmp = 1 + relations * -1
+                    tmp = relations * 0.00001 #1 + relations * -1
                     blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
-                    relations = torch.cat((relations, blank_prob), 2)            # [batch, window(length), class+1]        
+                    relations = torch.cat((blank_prob, relations), 2)            # [batch, window(length), class+1]
 
                     # Predict
                     _, predict_labels = torch.max(relations.data,2)
@@ -230,18 +239,20 @@ def main():
                     batch_labels = batch_labels.cpu().numpy()
 
                     # Counting Correct Ones #TODO use ctc as score
-                    rewards = [utils.compute_score(prediction, truth, NUM_WINDOW) for prediction, truth in zip(predict_labels, batch_labels)]
+                    rewards = [utils.compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batch_labels)]
                     total_rewards += np.sum(rewards)
 
                     # Record accuracy
                     accuracy = total_rewards/total_num_covered
                     accuracies.append(accuracy)
                     print("Accu = {}".format(accuracy))
-            
+                    utils.write_log("Accuracy = {}".format(accuracy))
+
                 # Overall accuracy
                 val_accuracy, _ = utils.mean_confidence_interval(accuracies)
                 accuracy_history.append(val_accuracy)
                 print("Final Val_Accu = {}".format(val_accuracy))
+                utils.write_log("Validation Accuracy = {} | ".format(val_accuracy), end="")
 
                 # Write history
                 file = open("accuracy_log.txt", "w")
@@ -257,9 +268,13 @@ def main():
 
                     max_accuracy = val_accuracy
                     print("Models Saved with accuracy={}".format(max_accuracy))
+                    utils.write_log("Models Saved")
+                else:
+                    utils.write_log("")
     
     print("Training Done")
     print("Final Accuracy = {}".format(max_accuracy))
+    utils.write_log("\nFinal Accuracy = {}".format(max_accuracy))
 
 # Program Starts
 if __name__ == '__main__':

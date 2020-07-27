@@ -22,10 +22,19 @@ def mean_confidence_interval(data, confidence=0.95):
     h = se * scipy.stats.t._ppf((1+confidence)/2., n-1)
     return m,h
 
-def compute_score(prediction, truth, length):
-    if truth in prediction:
-        zeros = np.count_nonzero(prediction == 0)
-        return zeros/(length-1)
-    else:
-        return 0
-    
+def ndarray_equal(arr1, arr2):
+    return len(arr1) == len(arr2) and np.count_nonzero((arr1 == arr2) == True) == len(arr1)
+
+# def compute_score(prediction, truth):
+#     zeros = np.count_nonzero(prediction == 0)
+#     truths = np.count_nonzero(prediction == truth)
+#     return 1 if truths != 0 and zeros + truths == len(prediction) and not ndarray_equal(prediction, np.array([truth, 0, truth])) else 0
+
+def compute_score(prediction, truth):
+    return np.count_nonzero(prediction == truth) / len(prediction)
+
+
+def write_log(content, end="\n"):
+    file = open("log.txt", "a")
+    file.write(content+end)
+    file.close()

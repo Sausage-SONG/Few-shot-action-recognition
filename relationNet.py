@@ -46,5 +46,5 @@ class RelationNetwork(nn.Module):
         out = self.layer2(out)
         out = out.view(out.size(0),-1)
         out = nn.functional.relu(self.fc1(out))
-        out = torch.sigmoid(self.fc2(out))           # TODO switch to softmax
+        out = torch.sigmoid(self.fc2(out))
         return out
