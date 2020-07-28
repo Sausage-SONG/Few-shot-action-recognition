@@ -1,5 +1,6 @@
 import scipy.stats
 import numpy as np
+import time
 
 def print_stage(name, length=65, character="-"):
     Llength = int((length - len(name)) / 2)
@@ -38,3 +39,12 @@ def write_log(content, end="\n"):
     file = open("log.txt", "a")
     file.write(content+end)
     file.close()
+
+def time_tick(name, t0=None):
+    if t0 is None:
+        return time.time()
+    t1 = time.time()
+    time_used = round(t1 - t0, 2)
+    content = "{} used {}s".format(name, time_used)
+    
+    return content, t1
