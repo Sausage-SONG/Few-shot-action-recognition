@@ -11,7 +11,7 @@ import random                                        #  OS
 import os                                            #
 
 class HAADataset(Dataset):
-    def __init__(self, data_folders, mode, video_type, class_num, video_num, num_inst, frame_num, clip_num, window_num):
+    def __init__(self, data_folders, classes, mode, video_type, class_num, video_num, num_inst, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "test"]
         self.video_type = video_type
@@ -28,10 +28,10 @@ class HAADataset(Dataset):
         self.data_folder_3 = os.path.join(data_folders[2], mode)
 
         all_class_names = os.listdir(self.data_folder_1)
-        self.class_names = random.sample(all_class_names, self.class_num)
+        self.class_names = classes if classes is not None else random.sample(all_class_names, self.class_num)
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
-            self.labels[class_name] = i+1
+            self.labels[class_name] = i
 
         self.video_folders = []
         self.video_labels = []
@@ -57,12 +57,15 @@ class HAADataset(Dataset):
         output += "Task -> mode={}; {}-way {}-shot\n".format(self.mode, self.class_num, self.video_num)
         return output
     
-    def printDataset(self):
+    def print_dataset(self):
         for i in range(len(self)):
             print("[{}]\t{}\t{}".format(i, self.video_labels[i], self.video_folders[i]))
     
     def __len__(self):
         return len(self.video_folders)
+    
+    def get_classes(self):
+        return self.class_names.copy()
 
     def __getitem__(self, idx):
         video_folder = self.video_folders[idx]

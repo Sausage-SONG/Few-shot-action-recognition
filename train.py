@@ -28,9 +28,9 @@ NUM_CLIP = 5                            # Num of clips per window
 NUM_WINDOW = 3                          # Num of processing window per video
 NUM_INST = 10                           # Num of videos selected in each class
 
-EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY", "TCN_Simple3DEnconder_CTC"]
+EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY", "TCN_Simple3DEnconder_CTC", "TCN_Simple3DEnconder_MSE"]
 
-EXP_NAME = "TCN_Simple3DEnconder_CTC"                             # Name of this experiment
+EXP_NAME = "TCN_Simple3DEnconder_MSE"                             # Name of this experiment
 DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        #
                 "/data/ssongad/haa/normalized_frame_scale2",      # Data path => [original, 2x, 3x]
                 "/data/ssongad/haa/normalized_frame_scale3"]      #
@@ -45,6 +45,7 @@ os.environ['CUDA_VISIBLE_DEVICES']="3,7"                          # GPU to be us
 device = torch.device('cuda')                                     #
 
 def main():
+    timestamp = utils.time_tick("Start")
     utils.write_log("Experiment Name: {}\n".format(EXP_NAME))
 
     # Define models
@@ -52,15 +53,16 @@ def main():
     encoder = nn.DataParallel(encoder)
     rn = RN(NUM_CLIP,RELATION_DIM)
     tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
-    ctc = nn.CTCLoss()
-    logSoftmax = nn.LogSoftmax(2)
+    # ctc = nn.CTCLoss()
+    mse = nn.MSELoss()
+    # logSoftmax = nn.LogSoftmax(2)
 
     # Move models to GPU
     encoder.to(device)
     rn.to(device)
     tcn.to(device)
-    ctc.to(device)
-    logSoftmax.to(device)
+    # ctc.to(device)
+    # logSoftmax.to(device)
 
     # Define Optimizer
     encoder_optim = torch.optim.Adam(encoder.parameters(),lr=LEARNING_RATE)
@@ -71,6 +73,9 @@ def main():
     encoder_scheduler = StepLR(encoder_optim,step_size=2000,gamma=0.5)
     rn_scheduler = StepLR(rn_optim,step_size=2000,gamma=0.5)
     tcn_scheduler = StepLR(tcn_optim,step_size=2000,gamma=0.5)
+
+    log, timestamp = utils.time_tick("Definition", timestamp)
+    utils.write_log(log)
 
     # Load Saved Model
     if encoder_saved_model != "":
@@ -91,9 +96,12 @@ def main():
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
     
+    log, timestamp = utils.time_tick("Models Loading", timestamp)
+    utils.write_log(log)
+    
     # Do it only once, so moved here
-    input_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=NUM_WINDOW, dtype=torch.long).to(device)
-    target_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
+    # input_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=NUM_WINDOW, dtype=torch.long).to(device)
+    # target_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
 
     skipped = 0
 
@@ -102,10 +110,11 @@ def main():
 
         print("Train_Epi[{}|{}] Pres_Accu = {}".format(episode, skipped, max_accuracy), end="\t")
         utils.write_log("Training Episode {} | ".format(episode), end="")
+        timestamp = utils.time_tick("Restart")
 
         # Setup Data
-        haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-        haaDataset_query = dataset.HAADataset(DATA_FOLDERS, "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+        haaDataset_support = dataset.HAADataset(DATA_FOLDERS, None, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+        haaDataset_query = dataset.HAADataset(DATA_FOLDERS, haaDataset_support.get_classes(), "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
         sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
         batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
         try:
@@ -116,6 +125,9 @@ def main():
             print("Skipped")
             utils.write_log("Data Loading Error | Total Error = {}".format(skipped))
             continue
+        
+        log, timestamp = utils.time_tick("Data Loading", timestamp)
+        utils.write_log("{} | ".format(log), end="")
 
         # Encoding
         samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
@@ -127,6 +139,9 @@ def main():
         batches = encoder(Variable(batches).to(device))
         batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW,NUM_CLIP,-1) # [batch*window, clip, feature]
 
+        log, timestamp = utils.time_tick("Encoding", timestamp)
+        utils.write_log("{} | ".format(log), end="")
+
         # TCN Processing
         samples = torch.transpose(samples,1,2)       # [class, feature(channel), clip(length)]
         samples = tcn(samples)
@@ -136,24 +151,31 @@ def main():
         batches = tcn(batches)
         batches = torch.transpose(batches,1,2)       # [batch*window, clip, feature]
 
+        log, timestamp = utils.time_tick("TCN", timestamp)
+        utils.write_log("{} | ".format(log), end="")
+
         # Compute Relation
         samples = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1,1)
         batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      # [batch*window, class, clip(length), feature(channel)]
         batches = torch.transpose(batches,0,1)                      #
         relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
-        relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
-        relations = nn.functional.softmax(relations, 2)
+        relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+        # relations = nn.functional.softmax(relations, 2)
+
+        log, timestamp = utils.time_tick("Relation", timestamp)
+        utils.write_log("{} | ".format(log), end="")
 
         # Generate final probabilities
-        tmp = relations * 0.00001 #1 + relations * -1
-        blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
-        relations = torch.cat((blank_prob, relations), 2)
-        final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), batch, class+1]
+        # tmp = relations * 0.00001 #1 + relations * -1
+        # blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
+        # relations = torch.cat((blank_prob, relations), 2)
+        # final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), batch, class+1]
 
         # Compute Loss
-        loss = ctc(final_outcome, batch_labels, input_lengths, target_lengths)
+        batch_labels = batch_labels.unsqueeze(1).repeat(1,NUM_WINDOW).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW)
+        one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1).to(device))
+        loss = mse(relations,one_hot_labels)
         print("Loss = {}".format(loss))
-        utils.write_log("Loss = {}".format(loss))
 
         # Back Propagation
         encoder.zero_grad()
@@ -176,6 +198,10 @@ def main():
         encoder_scheduler.step()
         tcn_scheduler.step()
 
+        log, timestamp = utils.time_tick("Loss & Step", timestamp)
+        utils.write_log("{} | ".format(log), end="")
+        utils.write_log("Loss = {}".format(loss))
+
         # Validation Loop
         if (episode % VALIDATION_FREQUENCY == 0 and episode != 0) or episode == TRAIN_EPISODE-1:
             utils.write_log("\n")
@@ -187,8 +213,8 @@ def main():
                     utils.write_log("Validating Episode {} | ".format(validation_episode), end="")
 
                     # Data Loading
-                    haaDataset_support = dataset.HAADataset(DATA_FOLDERS, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-                    haaDataset_query = dataset.HAADataset(DATA_FOLDERS, "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+                    haaDataset_support = dataset.HAADataset(DATA_FOLDERS, None, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
+                    haaDataset_query = dataset.HAADataset(DATA_FOLDERS, haaDataset_support.get_classes(), "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
                     sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
                     batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
                     try:
@@ -199,7 +225,7 @@ def main():
                         utils.write_log("Data Loading Error")
                         continue
                     total_rewards = 0
-                    total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
+                    total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS * NUM_WINDOW
 
                     # Encoding
                     samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
@@ -225,21 +251,17 @@ def main():
                     batches = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      # [batch*window, class, clip(length), feature(channel)]
                     batches = torch.transpose(batches,0,1)                      #
                     relations = torch.cat((samples,batches),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)          # [batch*window*class, clip*2(channel), feature]
-                    relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
-                    relations = nn.functional.softmax(relations, 2)
-
-                    # Generate final probabilities
-                    tmp = relations * 0.00001 #1 + relations * -1
-                    blank_prob = torch.prod(tmp, 2, keepdim=False).unsqueeze(2)
-                    relations = torch.cat((blank_prob, relations), 2)            # [batch, window(length), class+1]
+                    relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
 
                     # Predict
-                    _, predict_labels = torch.max(relations.data,2)
-                    predict_labels = predict_labels.cpu().numpy()
-                    batch_labels = batch_labels.cpu().numpy()
+                    _, predict_labels = torch.max(relations.data,1)
+                    # predict_labels = predict_labels.cpu().numpy()
+                    batch_labels = batch_labels.unsqueeze(1).repeat(1,NUM_WINDOW).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW)
+                    # batch_labels = batch_labels.cpu().numpy()
 
                     # Counting Correct Ones #TODO use ctc as score
-                    rewards = [utils.compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batch_labels)]
+                    # rewards = [utils.compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batch_labels)]
+                    rewards = [1 if predict_labels[i] == batch_labels[i] else 0 for i in range(len(predict_labels))]
                     total_rewards += np.sum(rewards)
 
                     # Record accuracy
