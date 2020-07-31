@@ -1,6 +1,7 @@
 import scipy.stats
 import numpy as np
 import time
+import ctc
 
 def print_stage(name, length=65, character="-"):
     Llength = int((length - len(name)) / 2)
@@ -26,13 +27,13 @@ def mean_confidence_interval(data, confidence=0.95):
 def ndarray_equal(arr1, arr2):
     return len(arr1) == len(arr2) and np.count_nonzero((arr1 == arr2) == True) == len(arr1)
 
-# def compute_score(prediction, truth):
-#     zeros = np.count_nonzero(prediction == 0)
-#     truths = np.count_nonzero(prediction == truth)
-#     return 1 if truths != 0 and zeros + truths == len(prediction) and not ndarray_equal(prediction, np.array([truth, 0, truth])) else 0
-
 def compute_score(prediction, truth):
-    return np.count_nonzero(prediction == truth) / len(prediction)
+    # zeros = np.count_nonzero(prediction == 0)
+    # truths = np.count_nonzero(prediction == truth)
+    return 1 if len(prediction) == 1 and prediction[0] == truth else 0
+
+# def compute_score(prediction, truth):
+#     return np.count_nonzero(prediction == truth) / len(prediction)
 
 
 def write_log(content, end="\n"):
@@ -48,3 +49,10 @@ def time_tick(name, t0=None):
     content = "{} used {}s".format(name, time_used)
     
     return content, t1
+
+def ctc_predict(input):
+    results = []
+    for i in range(len(input)):
+        result, _ = ctc.decode(input[i])
+        results.append(result)
+    return results

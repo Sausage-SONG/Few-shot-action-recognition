@@ -31,7 +31,7 @@ class HAADataset(Dataset):
         self.class_names = classes if classes is not None else random.sample(all_class_names, self.class_num)
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
-            self.labels[class_name] = i
+            self.labels[class_name] = i+1
 
         self.video_folders = []
         self.video_labels = []
@@ -76,12 +76,12 @@ class HAADataset(Dataset):
 
         if self.video_type == "support":
             i = np.random.randint(0, max(1, len(all_frames) - self.frame_num*self.clip_num))
-            selected_frames = list(range(i, i+self.frame_num))           # list(all_frames[i:i+self.frame_num])
+            selected_frames = list(range(i, i+self.frame_num*self.clip_num))           # list(all_frames[i:i+self.frame_num])
 
-            if len(selected_frames) < self.frame_num*self.clip_num:
-                tmp = selected_frames[-1]
-                for _ in range(self.frame_num*self.clip_num - len(selected_frames)):
-                    selected_frames.append(tmp)
+            if len(all_frames) < self.frame_num*self.clip_num:
+                tmp = all_frames[-1]
+                for _ in range(self.frame_num*self.clip_num - len(all_frames)):
+                    all_frames.append(tmp)
         else:
             length = len(all_frames)
             stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
@@ -112,7 +112,7 @@ class HAADataset(Dataset):
             j = i % self.frame_num
             if j == 0:
                 frames.append([])
-
+            
             frame = processed_frames[frame_idx].copy()
             frames[-1].append(frame)
         
@@ -153,5 +153,5 @@ class ClassBalancedSampler(Sampler):
 
 def get_HAA_data_loader(dataset, num_per_class, shuffle=False):
     sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.num_inst, shuffle)
-    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=15)
+    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=0)
     return loader

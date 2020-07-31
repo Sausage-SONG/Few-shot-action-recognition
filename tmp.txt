@@ -1,0 +1,11 @@
+relation output sigmoid [0,1], all prob low -> blank
+
+softmax [A,B,C] [0.1,0.1,0.1] -> [0.33,0.33,0.33] diff low -> blank
+                0.9^3 = 0.7+      0.67^3 < 0.33
+
+[0.8, 0.1, 0.1]
+
+0.8 - 0.33 = 1 - 0.47 = 0.53
+
+1. (1-relations)**
+2. 0
