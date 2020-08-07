@@ -2,6 +2,7 @@ import scipy.stats
 import numpy as np
 import time
 import ctc
+from torch.nn.init import kaiming_normal_
 
 def print_stage(name, length=65, character="-"):
     Llength = int((length - len(name)) / 2)
@@ -56,3 +57,6 @@ def ctc_predict(input):
         result, _ = ctc.decode(input[i])
         results.append(result)
     return results
+
+def weights_init(m):
+    kaiming_normal_(m.weight)

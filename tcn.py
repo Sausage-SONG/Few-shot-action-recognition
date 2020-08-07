@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
 
-
 class Chomp1d(nn.Module):
     def __init__(self, chomp_size):
         super(Chomp1d, self).__init__()

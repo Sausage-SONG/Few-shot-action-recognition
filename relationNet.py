@@ -3,13 +3,10 @@ import torch
 import torch.nn as nn
 import math
 
-# Local Packages
-import utils
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        n = m.kernel_size[0] * m.out_channels
         m.weight.data.normal_(0, math.sqrt(2. / n))
         if m.bias is not None:
             m.bias.data.zero_()
@@ -39,7 +36,7 @@ class RelationNetwork(nn.Module):
         self.fc2 = nn.Linear(hidden_size,1)
 
         # # Initialize itself
-        # self.apply(weights_init)
+        self.apply(weights_init)
 
     def forward(self,x):    
         out = self.layer1(x)
@@ -66,7 +63,7 @@ class RelationNetworkZero(nn.Module):
         self.fc2 = nn.Linear(hidden_size,1)
 
         # # Initialize itself
-        # self.apply(weights_init)
+        self.apply(weights_init)
 
     def forward(self,x):    
         out = self.layer1(x)
