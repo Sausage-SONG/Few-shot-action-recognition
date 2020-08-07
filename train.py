@@ -13,54 +13,28 @@ from i3d import Simple3DEncoder as C3D              #  Conv3D
 from tcn import TemporalConvNet as TCN              #  TCN
 import dataset                                      #  Dataset
 from utils import *                                 #  Helper Functions
-
-# Constant (Settings)
-TCN_OUT_CHANNEL = 64                    # Num of channels of output of TCN
-RELATION_DIM = 32                       # Dim of one layer of relation net
-CLASS_NUM = 3                           # <X>-way  | Num of classes
-SAMPLE_NUM_PER_CLASS = 5                # <Y>-shot | Num of supports per class
-BATCH_NUM_PER_CLASS = 3                 # Num of instances for validation per class
-TRAIN_EPISODE = 20000                   # Num of training episode 
-VALIDATION_EPISODE = 50                 # Num of validation episode
-VALIDATION_FREQUENCY = 200              # After each <X> training episodes, do validation once
-LEARNING_RATE = 0.0005                   # Initial learning rate
-NUM_FRAME_PER_CLIP = 10                 # Num of frames per clip
-NUM_CLIP = 5                            # Num of clips per window
-NUM_WINDOW = 3                          # Num of processing window per video
-NUM_INST = 10                           # Num of videos selected in each class
-
-EXP_NAMES = ["TCN_Simple3DEnconder_01", "OCCUPY", "TCN_Simple3DEnconder_CTC", "TCN_Simple3DEnconder_MSE"]
-
-EXP_NAME = "TCN_Simple3DEnconder_CTC"                             # Name of this experiment
-DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        #
-                "/data/ssongad/haa/normalized_frame_scale2",      # Data path => [original, 2x, 3x]
-                "/data/ssongad/haa/normalized_frame_scale3"]      #
-
-encoder_saved_model = "/data/ssongad/codes/ctc/models/TCN_Simple3DEnconder_MSE/TCN_Simple3DEnconder_01/encoder_0.7466666666666667.pkl"          # Path of saved encoder model
-rn_saved_model = "/data/ssongad/codes/ctc/models/TCN_Simple3DEnconder_MSE/TCN_Simple3DEnconder_01/rn_0.7466666666666667.pkl"               # Path of saved relation net model
-tcn_saved_model = "/data/ssongad/codes/ctc/models/TCN_Simple3DEnconder_MSE/TCN_Simple3DEnconder_01/tcn_0.7466666666666667.pkl"              # Path of saved tcn model
-rn0_saved_model = ""              # Path of saved rn0 model
-MAX_ACCURACY = 0                  # Accuracy of the loaded model
+from config import *                                #  Config
 
 # Device to be used
-os.environ['CUDA_VISIBLE_DEVICES']="2,3"                          # GPU to be used
-device = torch.device('cuda')                                     #
+os.environ['CUDA_VISIBLE_DEVICES'] = GPU            # GPU to be used
+device = torch.device('cuda')                       #
 
 def main():
     timestamp = time_tick("Start")
     write_log("Experiment Name: {}\n".format(EXP_NAME))
 
-    # Define models
+    # Define Models
     encoder = C3D(in_channels=3)
     encoder = nn.DataParallel(encoder)
-    rn = RN(NUM_CLIP, RELATION_DIM)
-    rn0 = RN0(NUM_CLIP*(CLASS_NUM+1), RELATION_DIM)
+    rn = RN(CLIP_NUM, RELATION_DIM)
+    rn0 = RN0(CLIP_NUM*(CLASS_NUM+1), RELATION_DIM)
     tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
+    # tcn = nn.DataParallel(tcn)
     ctc = nn.CTCLoss()
     # mse = nn.MSELoss()
     logSoftmax = nn.LogSoftmax(2)
 
-    # Move models to GPU
+    # Move models to computing device
     encoder.to(device)
     rn.to(device)
     rn0.to(device)
@@ -68,49 +42,62 @@ def main():
     ctc.to(device)
     logSoftmax.to(device)
 
-    # Define Optimizer
-    encoder_optim = torch.optim.Adam(encoder.parameters(),lr=LEARNING_RATE)
-    rn_optim = torch.optim.Adam(rn.parameters(),lr=LEARNING_RATE)
-    tcn_optim = torch.optim.Adam(tcn.parameters(),lr=LEARNING_RATE)
-    rn0_optim = torch.optim.Adam(rn0.parameters(),lr=LEARNING_RATE)
+    # Define Optimizers
+    encoder_optim = torch.optim.Adam(encoder.parameters(), lr=LEARNING_RATE) #weight_decay=0.0001
+    rn_optim = torch.optim.Adam(rn.parameters(), lr=LEARNING_RATE)
+    tcn_optim = torch.optim.Adam(tcn.parameters(), lr=LEARNING_RATE)
+    rn0_optim = torch.optim.Adam(rn0.parameters(), lr=LEARNING_RATE)
 
-    # Define Scheduler
-    encoder_scheduler = StepLR(encoder_optim,step_size=2000,gamma=0.5)
-    rn_scheduler = StepLR(rn_optim,step_size=2000,gamma=0.5)
-    tcn_scheduler = StepLR(tcn_optim,step_size=2000,gamma=0.5)
-    rn0_scheduler = StepLR(rn0_optim,step_size=2000,gamma=0.5)
+    # Define Schedulers
+    encoder_scheduler = StepLR(encoder_optim, step_size=2000, gamma=0.5)
+    rn_scheduler = StepLR(rn_optim, step_size=2000, gamma=0.5)
+    tcn_scheduler = StepLR(tcn_optim, step_size=2000, gamma=0.5)
+    rn0_scheduler = StepLR(rn0_optim, step_size=2000, gamma=0.5)
 
     log, timestamp = time_tick("Definition", timestamp)
     write_log(log)
 
-    # Load Saved Model
-    if encoder_saved_model != "":
-        encoder.load_state_dict(torch.load(encoder_saved_model))
-    if rn_saved_model != "":
-        rn.load_state_dict(torch.load(rn_saved_model))
-    if tcn_saved_model != "":
-        tcn.load_state_dict(torch.load(tcn_saved_model))
-    if rn0_saved_model != "":
-        rn0.load_state_dict(torch.load(rn0_saved_model))
+    # Load Saved Models & Optimizers & Schedulers
+    if os.path.exists(ENCODER_MODEL):
+        encoder.load_state_dict(torch.load(ENCODER_MODEL))
+    if os.path.exists(RN_MODEL):
+        rn.load_state_dict(torch.load(RN_MODEL))
+    if os.path.exists(TCN_MODEL):
+        tcn.load_state_dict(torch.load(TCN_MODEL))
+    if os.path.exists(RN0_MODEL):
+        rn0.load_state_dict(torch.load(RN0_MODEL))
+    if os.path.exists(ENCODER_OPTIM):
+        encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
+    if os.path.exists(RN_OPTIM):
+        rn_optim.load_state_dict(torch.load(RN_OPTIM))
+    if os.path.exists(TCN_OPTIM):
+        tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
+    if os.path.exists(RN0_OPTIM):
+        rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
+    if os.path.exists(ENCODER_SCHEDULER):
+        encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
+    if os.path.exists(RN_SCHEDULER):
+        rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
+    if os.path.exists(TCN_SCHEDULER):
+        tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
+    if os.path.exists(RN0_SCHEDULER):
+        rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
     
     max_accuracy = MAX_ACCURACY     # Currently the best accuracy
     accuracy_history = []           # Only for logging
 
     # Prepare output folder
-    if EXP_NAME == "":
-        output_folder = "./models/"
-    else:
-        output_folder = "./models/" + EXP_NAME + "/"
+    output_folder = os.path.join("./models", EXP_NAME)
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
     
     log, timestamp = time_tick("Models Loading", timestamp)
     write_log(log)
     
-    # Do it only once, so moved here
-    input_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=NUM_WINDOW, dtype=torch.long).to(device)
-    target_lengths = torch.full(size=(BATCH_NUM_PER_CLASS*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
-    zeros = torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW).to(device)
+    # Some Constant Tensors
+    input_lengths = torch.full(size=(QUERY_NUM*CLASS_NUM,), fill_value=WINDOW_NUM, dtype=torch.long).to(device)
+    target_lengths = torch.full(size=(QUERY_NUM*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
+    zeros = torch.zeros(QUERY_NUM*CLASS_NUM, WINDOW_NUM).to(device)
 
     skipped = 0
 
@@ -122,13 +109,15 @@ def main():
         timestamp = time_tick("Restart")
 
         # Setup Data
-        haaDataset_support = dataset.HAADataset(DATA_FOLDERS, None, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-        haaDataset_query = dataset.HAADataset(DATA_FOLDERS, haaDataset_support.get_classes(), "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-        sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
-        batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
+        if DATASET == "haa":
+            the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+        elif DATASET == "kinetics":
+            the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+        sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
+        batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
         try:
-            samples, _ = sample_dataloader.__iter__().next()             # [batch, clip, RGB, frame, H, W]
-            batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
+            samples, _ = sample_dataloader.__iter__().next()             # [support*class, window*clip, RGB, frame, H, W]
+            batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
         except Exception:
             skipped += 1
             print("Skipped")
@@ -139,54 +128,56 @@ def main():
         write_log("{} | ".format(log), end="")
 
         # Encoding
-        samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+        samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
         samples = encoder(Variable(samples).to(device))
-        samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,NUM_CLIP,-1)
-        samples = torch.sum(samples,1).squeeze(1)                              # [class, clip, feature]
+        samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)    # [support*class*window, clip, feature]
 
-        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
         batches = encoder(Variable(batches).to(device))
-        batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW,NUM_CLIP,-1) # [batch*window, clip, feature]
+        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM,CLIP_NUM,-1)       # [query*class*window, clip, feature]
 
         log, timestamp = time_tick("Encoding", timestamp)
         write_log("{} | ".format(log), end="")
 
         # TCN Processing
-        samples = torch.transpose(samples,1,2)       # [class, feature(channel), clip(length)]
+        samples = torch.transpose(samples,1,2)       # [support*class*window, feature(channel), clip(length)]
         samples = tcn(samples)
-        samples = torch.transpose(samples,1,2)       # [class, clip, feature]
+        samples = torch.transpose(samples,1,2)       # [support*class*window, clip, feature]
+        samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
+        samples = torch.sum(samples,1).squeeze(1)    # [class, window, clip, feature]
+        samples, _ = torch.max(samples, 1)           # [class, clip, feature]
 
-        batches = torch.transpose(batches,1,2)       # [batch*window, feature(channel), clip(length)]
+        batches = torch.transpose(batches,1,2)       # [query*class*window, feature(channel), clip(length)]
         batches = tcn(batches)
-        batches = torch.transpose(batches,1,2)       # [batch*window, clip, feature]
+        batches = torch.transpose(batches,1,2)       # [query*class*window, clip, feature]
 
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
         # Compute Relation
-        samples_rn = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1,1)
-        batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      
-        batches_rn = torch.transpose(batches_rn,0,1)                      # [batch*window, class, clip(length), feature(channel)]
-        relations = torch.cat((samples_rn,batches_rn),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)    # [batch*window*class, clip*2(channel), feature]
-        relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+        samples_rn = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1)
+        batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
+        batches_rn = torch.transpose(batches_rn,0,1)                      # [query*class*window, class, clip(length), feature(channel)]
+        relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
+        relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
 
         # Compute Zero Probability
-        samples_rn0 = samples.reshape(CLASS_NUM*NUM_CLIP, -1).unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1)
+        samples_rn0 = samples.reshape(CLASS_NUM*CLIP_NUM, -1).unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1)
         relations_rn0 = torch.cat((batches, samples_rn0), 1)
-        blank_prob = rn0(relations_rn0).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, 1)
+        blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
         log, timestamp = time_tick("Relation", timestamp)
         write_log("{} | ".format(log), end="")
 
         # Generate final probabilities
         relations = torch.cat((blank_prob, relations), 2)
-        final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), batch, class+1]
+        final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), query*class, class+1]
 
         # Compute Loss
-        # batch_labels = batch_labels.unsqueeze(1).repeat(1,NUM_WINDOW).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW)
-        # one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1).to(device))
+        # batches_labels = batches_labels.unsqueeze(1).repeat(1,WINDOW_NUM).view(QUERY_NUM*CLASS_NUM*WINDOW_NUM)
+        # one_hot_labels = Variable(torch.zeros(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM).scatter_(1, batches_labels.view(-1,1), 1).to(device))
         # loss = mse(relations,one_hot_labels)
-        loss = ctc(final_outcome, batch_labels, input_lengths, target_lengths)
+        loss = ctc(final_outcome, batches_labels, input_lengths, target_lengths)
         print("Loss = {}".format(loss))
 
         # Back Propagation
@@ -234,64 +225,66 @@ def main():
                     write_log("Validating Episode {} | ".format(validation_episode), end="")
 
                     # Data Loading
-                    haaDataset_support = dataset.HAADataset(DATA_FOLDERS, None, "train", "support", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-                    haaDataset_query = dataset.HAADataset(DATA_FOLDERS, haaDataset_support.get_classes(), "train", "query", CLASS_NUM, SAMPLE_NUM_PER_CLASS, NUM_INST, NUM_FRAME_PER_CLIP, NUM_CLIP, NUM_WINDOW)
-                    sample_dataloader = dataset.get_HAA_data_loader(haaDataset_support,num_per_class=SAMPLE_NUM_PER_CLASS)
-                    batch_dataloader = dataset.get_HAA_data_loader(haaDataset_query,num_per_class=BATCH_NUM_PER_CLASS,shuffle=True)
+                    if DATASET == "haa":
+                        the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                    elif DATASET == "kinetics":
+                        the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                    sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
+                    batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
                     try:
-                        samples, _ = sample_dataloader.__iter__().next()            # [batch, clip, RGB, frame, H, W]
-                        batches, batch_labels = batch_dataloader.__iter__().next()   # [batch, window*clip, RGB, frame, H, W]
+                        samples, _ = sample_dataloader.__iter__().next()            # [query*class, clip, RGB, frame, H, W]
+                        batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
                     except Exception:
                         print("Skipped")
                         write_log("Data Loading Error")
                         continue
                     total_rewards = 0
-                    total_num_covered = CLASS_NUM * BATCH_NUM_PER_CLASS
+                    total_num_covered = CLASS_NUM * QUERY_NUM
 
                     # Encoding
-                    samples = samples.view(CLASS_NUM*SAMPLE_NUM_PER_CLASS*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+                    samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
                     samples = encoder(Variable(samples).to(device))
-                    samples = samples.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,NUM_CLIP,-1)
-                    samples = torch.sum(samples,1).squeeze(1)                              # [class, clip, feature]
+                    samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)    # [support*class*window, clip, feature]
 
-                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW*NUM_CLIP, 3, NUM_FRAME_PER_CLIP, 128, 128)
+                    batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
                     batches = encoder(Variable(batches).to(device))
-                    batches = batches.view(CLASS_NUM*BATCH_NUM_PER_CLASS*NUM_WINDOW,NUM_CLIP,-1) # [batch*window, clip, feature]
+                    batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM,CLIP_NUM,-1)       # [query*class*window, clip, feature]
 
                     # TCN Processing
-                    samples = torch.transpose(samples,1,2)       # [class, feature(channel), clip(length)]
+                    samples = torch.transpose(samples,1,2)       # [support*class*window, feature(channel), clip(length)]
                     samples = tcn(samples)
-                    samples = torch.transpose(samples,1,2)       # [class, clip, feature]
+                    samples = torch.transpose(samples,1,2)       # [support*class*window, clip, feature]
+                    samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
+                    samples = torch.sum(samples,1).squeeze(1)    # [class, window, clip, feature]
+                    samples, _ = torch.max(samples, 1)           # [class, clip, feature]
 
-                    batches = torch.transpose(batches,1,2)       # [batch*window, feature(channel), clip(length)]
+                    batches = torch.transpose(batches,1,2)       # [query*class*window, feature(channel), clip(length)]
                     batches = tcn(batches)
-                    batches = torch.transpose(batches,1,2)       # [batch*window, clip, feature]
+                    batches = torch.transpose(batches,1,2)       # [query*class*window, clip, feature]
 
                     # Compute Relation
-                    samples_rn = samples.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1,1)
-                    batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)      
-                    batches_rn = torch.transpose(batches_rn,0,1)                      # [batch*window, class, clip(length), feature(channel)]
-                    relations = torch.cat((samples_rn,batches_rn),2).view(-1,NUM_CLIP*2,TCN_OUT_CHANNEL)    # [batch*window*class, clip*2(channel), feature]
-                    relations = rn(relations).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, CLASS_NUM)    # [batch, window, class]
+                    samples_rn = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1)
+                    batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
+                    batches_rn = torch.transpose(batches_rn,0,1)                      # [query*class*window, class, clip(length), feature(channel)]
+                    relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
+                    relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
                     
                     # Compute Zero Probability
-                    samples_rn0 = samples.reshape(CLASS_NUM*NUM_CLIP, -1).unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW,1,1)
+                    samples_rn0 = samples.reshape(CLASS_NUM*CLIP_NUM, -1).unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1)
                     relations_rn0 = torch.cat((batches, samples_rn0), 1)
-                    blank_prob = rn0(relations_rn0).view(BATCH_NUM_PER_CLASS*CLASS_NUM, NUM_WINDOW, 1)
+                    blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
                     # Generate final probabilities
                     relations = torch.cat((blank_prob, relations), 2)
-                    final_outcome = nn.functional.softmax(relations, 2)  # [batch, window(length), class+1]
+                    final_outcome = nn.functional.softmax(relations, 2)  # [query*class, window(length), class+1]
 
                     # Predict
                     predict_labels = ctc_predict(final_outcome.cpu().numpy())
-                    # predict_labels = predict_labels.cpu().numpy()
-                    # batch_labels = batch_labels.unsqueeze(1).repeat(1,NUM_WINDOW).view(BATCH_NUM_PER_CLASS*CLASS_NUM*NUM_WINDOW)
-                    batch_labels = batch_labels.numpy()
+                    batches_labels = batches_labels.numpy()
 
                     # Counting Correct Ones #TODO use ctc as score
-                    rewards = [compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batch_labels)]
-                    # rewards = [1 if predict_labels[i] == batch_labels[i] else 0 for i in range(len(predict_labels))]
+                    rewards = [compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batches_labels)]
+                    # rewards = [1 if predict_labels[i] == batches_labels[i] else 0 for i in range(len(predict_labels))]
                     total_rewards += np.sum(rewards)
 
                     # Record accuracy
@@ -313,11 +306,24 @@ def main():
 
                 # Save Model
                 if val_accuracy > max_accuracy:
+                    # Prepare folder
+                    folder_for_this_accuracy = os.path.join(output_folder, str(val_accuracy))
+                    if not os.path.exists(folder_for_this_accuracy):
+                        os.mkdir(folder_for_this_accuracy)
+
                     # save networks
-                    torch.save(encoder.state_dict(), output_folder + "encoder_"+str(val_accuracy)+".pkl")
-                    torch.save(rn.state_dict(), output_folder + "rn_"+str(val_accuracy)+".pkl")
-                    torch.save(tcn.state_dict(), output_folder + "tcn_"+str(val_accuracy)+".pkl")
-                    torch.save(rn0.state_dict(), output_folder + "rn0_"+str(val_accuracy)+".pkl")
+                    torch.save(encoder.state_dict(), os.path.join(folder_for_this_accuracy, "encoder.pkl"))
+                    torch.save(rn.state_dict(), os.path.join(folder_for_this_accuracy, "rn.pkl"))
+                    torch.save(tcn.state_dict(), os.path.join(folder_for_this_accuracy, "tcn.pkl"))
+                    torch.save(rn0.state_dict(), os.path.join(folder_for_this_accuracy, "rn0.pkl"))
+                    torch.save(encoder_optim.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_optim.pkl"))
+                    torch.save(rn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn_optim.pkl"))
+                    torch.save(tcn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_optim.pkl"))
+                    torch.save(rn0_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_optim.pkl"))
+                    torch.save(encoder_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_scheduler.pkl"))
+                    torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
+                    torch.save(tcn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_scheduler.pkl"))
+                    torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl")) 
 
                     max_accuracy = val_accuracy
                     print("Models Saved with accuracy={}".format(max_accuracy))
