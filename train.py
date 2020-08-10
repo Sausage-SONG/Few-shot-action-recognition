@@ -304,29 +304,30 @@ def main():
                 if val_accuracy > max_accuracy:
                     # Prepare folder
                     folder_for_this_accuracy = os.path.join(output_folder, str(val_accuracy))
-                    if not os.path.exists(folder_for_this_accuracy):
-                        os.mkdir(folder_for_this_accuracy)
-
-                    # save networks
-                    torch.save(encoder.state_dict(), os.path.join(folder_for_this_accuracy, "encoder.pkl"))
-                    torch.save(rn.state_dict(), os.path.join(folder_for_this_accuracy, "rn.pkl"))
-                    torch.save(tcn.state_dict(), os.path.join(folder_for_this_accuracy, "tcn.pkl"))
-                    torch.save(rn0.state_dict(), os.path.join(folder_for_this_accuracy, "rn0.pkl"))
-                    torch.save(encoder_optim.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_optim.pkl"))
-                    torch.save(rn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn_optim.pkl"))
-                    torch.save(tcn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_optim.pkl"))
-                    torch.save(rn0_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_optim.pkl"))
-                    torch.save(encoder_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_scheduler.pkl"))
-                    torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
-                    torch.save(tcn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_scheduler.pkl"))
-                    torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl"))
-                    os.system("cp ./config.py '" + folder_for_this_accuracy + "'")
-
                     max_accuracy = val_accuracy
                     print("Models Saved with accuracy={}".format(max_accuracy))
                     write_log("Models Saved")
                 else:
+                    folder_for_this_accuracy = os.path.join(output_folder, "Latest")
                     write_log("")
+
+                if not os.path.exists(folder_for_this_accuracy):
+                    os.mkdir(folder_for_this_accuracy)
+
+                # Save networks
+                torch.save(encoder.state_dict(), os.path.join(folder_for_this_accuracy, "encoder.pkl"))
+                torch.save(rn.state_dict(), os.path.join(folder_for_this_accuracy, "rn.pkl"))
+                torch.save(tcn.state_dict(), os.path.join(folder_for_this_accuracy, "tcn.pkl"))
+                torch.save(rn0.state_dict(), os.path.join(folder_for_this_accuracy, "rn0.pkl"))
+                torch.save(encoder_optim.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_optim.pkl"))
+                torch.save(rn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn_optim.pkl"))
+                torch.save(tcn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_optim.pkl"))
+                torch.save(rn0_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_optim.pkl"))
+                torch.save(encoder_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_scheduler.pkl"))
+                torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
+                torch.save(tcn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_scheduler.pkl"))
+                torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl"))
+                os.system("cp ./config.py '" + folder_for_this_accuracy + "'")
     
     print("Training Done")
     print("Final Accuracy = {}".format(max_accuracy))
