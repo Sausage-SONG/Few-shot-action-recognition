@@ -110,7 +110,7 @@ class HAADataset(Dataset):
         return frames, video_label
 
 class KineticsDataset(Dataset):
-    def __init__(self, data_folder, mode, class_num, video_num, inst_num, frame_num, clip_num, window_num):
+    def __init__(self, data_folder, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "test"]
 
@@ -120,9 +120,9 @@ class KineticsDataset(Dataset):
         self.frame_num = frame_num
         self.clip_num = clip_num
         self.window_num = window_num
-        self.data_folder = os.path.join(data_folder, mode)
+        self.data_folder = data_folder
 
-        all_class_names = os.listdir(self.data_folder)
+        all_class_names = splits[0] if self.mode == "train" else splits[1]
         self.class_names = random.sample(all_class_names, self.class_num)
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):

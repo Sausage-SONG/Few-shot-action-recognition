@@ -109,13 +109,13 @@ def main():
         timestamp = time_tick("Restart")
 
         # Setup Data
-        if DATASET == "haa":
-            the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-        elif DATASET == "kinetics":
-            the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-        sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
-        batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
         try:
+            if DATASET == "haa":
+                the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+            elif DATASET == "kinetics":
+                the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+            sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
+            batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
             samples, _ = sample_dataloader.__iter__().next()             # [support*class, window*clip, RGB, frame, H, W]
             batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
         except Exception:
@@ -130,26 +130,27 @@ def main():
         # Encoding
         samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
         samples = encoder(Variable(samples).to(device))
-        samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)    # [support*class*window, clip, feature]
+        samples = samples.view(CLASS_NUM*SAMPLE_NUM, WINDOW_NUM*CLIP_NUM, -1)    # [support*class, window*clip, feature]
 
         batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
         batches = encoder(Variable(batches).to(device))
-        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM,CLIP_NUM,-1)       # [query*class*window, clip, feature]
+        batches = batches.view(CLASS_NUM*QUERY_NUM, WINDOW_NUM*CLIP_NUM,-1)       # [query*class, window*clip, feature]
 
         log, timestamp = time_tick("Encoding", timestamp)
         write_log("{} | ".format(log), end="")
 
         # TCN Processing
-        samples = torch.transpose(samples,1,2)       # [support*class*window, feature(channel), clip(length)]
+        samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
         samples = tcn(samples)
-        samples = torch.transpose(samples,1,2)       # [support*class*window, clip, feature]
+        samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
         samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
-        samples = torch.sum(samples,1).squeeze(1)    # [class, window, clip, feature]
-        samples, _ = torch.max(samples, 1)           # [class, clip, feature]
+        samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
+        samples = torch.mean(samples,1)              # [class, clip, feature]
 
-        batches = torch.transpose(batches,1,2)       # [query*class*window, feature(channel), clip(length)]
+        batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
-        batches = torch.transpose(batches,1,2)       # [query*class*window, clip, feature]
+        batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
+        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
 
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
@@ -187,11 +188,6 @@ def main():
         tcn.zero_grad()
         loss.backward()
 
-        # gradient = []
-        # for _, p in rn.named_parameters():
-        #     gradient.append(p.grad.norm().item())
-        # write_log("{} | ".format(gradient), end="")
-
         # Clip Gradient
         nn.utils.clip_grad_norm_(encoder.parameters(),0.5)
         nn.utils.clip_grad_norm_(rn.parameters(),0.5)
@@ -225,13 +221,13 @@ def main():
                     write_log("Validating Episode {} | ".format(validation_episode), end="")
 
                     # Data Loading
-                    if DATASET == "haa":
-                        the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                    elif DATASET == "kinetics":
-                        the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                    sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
-                    batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
                     try:
+                        if DATASET == "haa":
+                            the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                        elif DATASET == "kinetics":
+                            the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                        sample_dataloader = dataset.get_data_loader(the_dataset,num_per_class=SAMPLE_NUM)
+                        batch_dataloader = dataset.get_data_loader(the_dataset,num_per_class=QUERY_NUM,shuffle=True)
                         samples, _ = sample_dataloader.__iter__().next()            # [query*class, clip, RGB, frame, H, W]
                         batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
                     except Exception:
@@ -323,7 +319,8 @@ def main():
                     torch.save(encoder_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_scheduler.pkl"))
                     torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
                     torch.save(tcn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_scheduler.pkl"))
-                    torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl")) 
+                    torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl"))
+                    os.system("cp ./config.py '" + folder_for_this_accuracy + "'")
 
                     max_accuracy = val_accuracy
                     print("Models Saved with accuracy={}".format(max_accuracy))
