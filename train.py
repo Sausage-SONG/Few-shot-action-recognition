@@ -9,11 +9,12 @@ import os                                        #  OS
 from relationNet import RelationNetwork as RN       #  Relation Net
 from relationNet import RelationNetworkZero as RN0  #
 # from i3d import InceptionI3d as I3D               #  I3D
-from i3d import Simple3DEncoder as C3D              #  Conv3D
+from encoder import Simple3DEncoder as C3D              #  Conv3D
 from tcn import TemporalConvNet as TCN              #  TCN
 import dataset                                      #  Dataset
 from utils import *                                 #  Helper Functions
 from config import *                                #  Config
+from transformer import *
 
 # Device to be used
 os.environ['CUDA_VISIBLE_DEVICES'] = GPU            # GPU to be used
@@ -29,6 +30,10 @@ def main():
     rn = RN(CLIP_NUM, RELATION_DIM)
     rn0 = RN0(CLIP_NUM*(CLASS_NUM+1), RELATION_DIM)
     tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
+    encoder_layer = TransformerEncoderLayer(TCN_OUT_CHANNEL,nhead=2)
+    trans_encoder = TransformerEncoder(encoder_layer,1)
+    decoder_layer = CustomTransformerDecoderLayer(TCN_OUT_CHANNEL,nhead=2)
+    trans_decoder = TransformerDecoder(decoder_layer,1)
     # tcn = nn.DataParallel(tcn)
     ctc = nn.CTCLoss()
     # mse = nn.MSELoss()
@@ -39,6 +44,8 @@ def main():
     rn.to(device)
     rn0.to(device)
     tcn.to(device)
+    trans_encoder.to(device)
+    trans_decoder.to(device)
     ctc.to(device)
     logSoftmax.to(device)
 
@@ -47,12 +54,16 @@ def main():
     rn_optim = torch.optim.Adam(rn.parameters(), lr=LEARNING_RATE)
     tcn_optim = torch.optim.Adam(tcn.parameters(), lr=LEARNING_RATE)
     rn0_optim = torch.optim.Adam(rn0.parameters(), lr=LEARNING_RATE)
+    trans_encoder_optim = torch.optim.Adam(trans_encoder.parameters(),lr=LEARNING_RATE)
+    trans_decoder_optim = torch.optim.Adam(trans_decoder.parameters(),lr=LEARNING_RATE)
 
     # Define Schedulers
     encoder_scheduler = StepLR(encoder_optim, step_size=2000, gamma=0.5)
     rn_scheduler = StepLR(rn_optim, step_size=2000, gamma=0.5)
     tcn_scheduler = StepLR(tcn_optim, step_size=2000, gamma=0.5)
     rn0_scheduler = StepLR(rn0_optim, step_size=2000, gamma=0.5)
+    trans_encoder_scheduler = StepLR(trans_encoder_optim, step_size=2000, gamma=0.5)
+    trans_decoder_scheduler = StepLR(trans_decoder_optim, step_size=2000, gamma=0.5)
 
     log, timestamp = time_tick("Definition", timestamp)
     write_log(log)
@@ -144,27 +155,34 @@ def main():
         samples = tcn(samples)
         samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
         samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
+        samples = torch.transpose(samples,0,2)        # [window, sample, class, clip, feature]
+        samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM*CLIP_NUM,-1)
+        memory = trans_encoder(samples)   # transformer encoder takes (length, batch, embedding)
+        
+        '''
         samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
         samples = torch.mean(samples,1)              # [class, clip, feature]
+        '''
 
         batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
         batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
-
+        batches = batches.reshape(QUERY_NUM, CLASS_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [query, class, window, clip, feature]
+        batches = torch.transpose(batches,1,2)       #[query, window, class, clip, feature]
+        batches = batches.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM, CLIP_NUM,-1)
+        batches_rn = batches.repeat(1,CLASS_NUM,1)      #[query*window*class, class*clip, feature]
+        tgt = trans_decoder(batches_rn,memory) # tgt shape: [query*window*class, class*clip, feature]
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
+        samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
+        batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
         # Compute Relation
-        samples_rn = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1)
-        batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
-        batches_rn = torch.transpose(batches_rn,0,1)                      # [query*class*window, class, clip(length), feature(channel)]
         relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
         relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
 
         # Compute Zero Probability
-        samples_rn0 = samples.reshape(CLASS_NUM*CLIP_NUM, -1).unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1)
-        relations_rn0 = torch.cat((batches, samples_rn0), 1)
+        relations_rn0 = torch.cat((batches, tgt), 1)
         blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
         log, timestamp = time_tick("Relation", timestamp)
@@ -193,18 +211,24 @@ def main():
         nn.utils.clip_grad_norm_(rn.parameters(),0.5)
         nn.utils.clip_grad_norm_(rn0.parameters(),0.5)
         nn.utils.clip_grad_norm_(tcn.parameters(),0.5)
+        nn.utils.clip_grad_norm_(trans_decoder.parameters(),0.5)
+        nn.utils.clip_grad_norm_(trans_encoder.parameters(),0.5)
 
         # Update Models
         encoder_optim.step()
         rn_optim.step()
         rn0_optim.step()
         tcn_optim.step()
+        trans_encoder_optim.step()
+        trans_decoder_optim.step()
 
         # Update "step" for scheduler
         rn_scheduler.step()
         rn0_scheduler.step()
         encoder_scheduler.step()
         tcn_scheduler.step()
+        trans_encoder_scheduler.step()
+        trans_decoder_scheduler.step()
 
         log, timestamp = time_tick("Loss & Step", timestamp)
         write_log("{} | ".format(log), end="")
