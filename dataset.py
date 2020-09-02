@@ -134,7 +134,16 @@ class KineticsDataset(Dataset):
         self.data_folder = data_folder
 
         all_class_names = splits[0] if self.mode == "train" else splits[1]
-        self.class_names = random.sample(all_class_names, self.class_num)
+        while True:
+            done = True
+            self.class_names = random.sample(all_class_names, self.class_num)
+            for class_name in self.class_names:
+                class_folder = os.path.join(self.data_folder, class_name)
+                if len(os.listdir(class_folder)) < self.inst_num:
+                    done = False
+                    break
+            if done:
+                break
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
             self.labels[class_name] = i+1
@@ -234,7 +243,16 @@ class FullKineticsDataset(Dataset):
         self.data_folder = data_folder
 
         all_class_names = splits[0] if self.mode == "train" else splits[1]
-        self.class_names = random.sample(all_class_names, self.class_num)
+        while True:
+            done = True
+            self.class_names = random.sample(all_class_names, self.class_num)
+            for class_name in self.class_names:
+                class_folder = os.path.join(self.data_folder, class_name)
+                if len(os.listdir(class_folder)) < self.inst_num:
+                    done = False
+                    break
+            if done:
+                break
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
             self.labels[class_name] = i+1
@@ -355,7 +373,16 @@ class AVADataset(Dataset):
         self.data_folder = data_folder
 
         all_class_names = splits[0] if self.mode == "train" else splits[1]
-        self.class_names = random.sample(all_class_names, self.class_num)
+        while True:
+            done = True
+            self.class_names = random.sample(all_class_names, self.class_num)
+            for class_name in self.class_names:
+                class_folder = os.path.join(self.data_folder, class_name)
+                if len(os.listdir(class_folder)) < self.inst_num:
+                    done = False
+                    break
+            if done:
+                break
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
             self.labels[class_name] = i+1

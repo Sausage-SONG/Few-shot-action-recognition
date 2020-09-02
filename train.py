@@ -82,31 +82,31 @@ def main():
     if os.path.exists(TRANS_DE):
         trans_decoder.load_state_dict(torch.load(TRANS_DE))
     
-    if os.path.exists(ENCODER_OPTIM):
-        encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
-    if os.path.exists(RN_OPTIM):
-        rn_optim.load_state_dict(torch.load(RN_OPTIM))
-    if os.path.exists(TCN_OPTIM):
-        tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
-    if os.path.exists(RN0_OPTIM):
-        rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
-    if os.path.exists(TRANS_EN_OPTIM):
-        trans_encoder_optim.load_state_dict(torch.load(TRANS_EN_OPTIM))
-    if os.path.exists(TRANS_DE_OPTIM):
-        trans_decoder_optim.load_state_dict(torch.load(TRANS_DE_OPTIM))
+    # if os.path.exists(ENCODER_OPTIM):
+    #     encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
+    # if os.path.exists(RN_OPTIM):
+    #     rn_optim.load_state_dict(torch.load(RN_OPTIM))
+    # if os.path.exists(TCN_OPTIM):
+    #     tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
+    # if os.path.exists(RN0_OPTIM):
+    #     rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
+    # if os.path.exists(TRANS_EN_OPTIM):
+    #     trans_encoder_optim.load_state_dict(torch.load(TRANS_EN_OPTIM))
+    # if os.path.exists(TRANS_DE_OPTIM):
+    #     trans_decoder_optim.load_state_dict(torch.load(TRANS_DE_OPTIM))
 
-    if os.path.exists(ENCODER_SCHEDULER):
-        encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
-    if os.path.exists(RN_SCHEDULER):
-        rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
-    if os.path.exists(TCN_SCHEDULER):
-        tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
-    if os.path.exists(RN0_SCHEDULER):
-        rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
-    if os.path.exists(TRANS_EN_SCHEDULER):
-        trans_encoder_scheduler.load_state_dict(torch.load(TRANS_EN_SCHEDULER))
-    if os.path.exists(TRANS_DE_SCHEDULER):
-        trans_decoder_scheduler.load_state_dict(torch.load(TRANS_DE_SCHEDULER))
+    # if os.path.exists(ENCODER_SCHEDULER):
+    #     encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
+    # if os.path.exists(RN_SCHEDULER):
+    #     rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
+    # if os.path.exists(TCN_SCHEDULER):
+    #     tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
+    # if os.path.exists(RN0_SCHEDULER):
+    #     rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
+    # if os.path.exists(TRANS_EN_SCHEDULER):
+    #     trans_encoder_scheduler.load_state_dict(torch.load(TRANS_EN_SCHEDULER))
+    # if os.path.exists(TRANS_DE_SCHEDULER):
+    #     trans_decoder_scheduler.load_state_dict(torch.load(TRANS_DE_SCHEDULER))
     
     max_accuracy = MAX_ACCURACY     # Currently the best accuracy
     accuracy_history = []           # Only for logging
@@ -157,7 +157,7 @@ def main():
 
         batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
         batches = encoder(Variable(batches).to(device))
-        batches = batches.view(CLASS_NUM*QUERY_NUM, WINDOW_NUM*CLIP_NUM,-1)       # [query*class, window*clip, feature]
+        batches = batches.view(CLASS_NUM*QUERY_NUM, WINDOW_NUM*CLIP_NUM,-1)      # [query*class, window*clip, feature]
 
         log, timestamp = time_tick("Encoding", timestamp)
         write_log("{} | ".format(log), end="")
@@ -170,31 +170,25 @@ def main():
         samples = torch.transpose(samples,0,2)        # [window, sample, class, clip, feature]
         samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM*CLIP_NUM,-1)
         memory = trans_encoder(samples)   # transformer encoder takes (length, batch, embedding)
-        
-        '''
-        samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
-        samples = torch.mean(samples,1)              # [class, clip, feature]
-        '''
 
         batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
         batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-        batches = batches.reshape(QUERY_NUM, CLASS_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [query, class, window, clip, feature]
-        batches = torch.transpose(batches,1,2)       #[query, window, class, clip, feature]
-        batches = batches.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM, CLIP_NUM,-1)
-        batches_rn = batches.repeat(1,CLASS_NUM,1)      #[query*window*class, class*clip, feature]
-        tgt = trans_decoder(batches_rn,memory) # tgt shape: [query*window*class, class*clip, feature]
+        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM,-1)  # [query*class*window, clip, feature]
+        batches_rn = batches.repeat(1,CLASS_NUM,1)      # [query*window*class, class*clip, feature]
+        tgt = trans_decoder(batches_rn,memory)          # [query*window*class, class*clip, feature]
+        
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
+        # Compute Relation
         samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
         batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
-        # Compute Relation
         relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
         relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
 
         # Compute Zero Probability
-        relations_rn0 = torch.cat((batches, tgt), 1)
+        relations_rn0 = torch.cat((batches, tgt), 1) # [query*class*window, (class+1)*clip, feature]
         blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
         log, timestamp = time_tick("Relation", timestamp)
@@ -287,27 +281,29 @@ def main():
                     batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM,CLIP_NUM,-1)       # [query*class*window, clip, feature]
 
                     # TCN Processing
-                    samples = torch.transpose(samples,1,2)       # [support*class*window, feature(channel), clip(length)]
+                    samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
                     samples = tcn(samples)
-                    samples = torch.transpose(samples,1,2)       # [support*class*window, clip, feature]
+                    samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
                     samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
-                    samples = torch.sum(samples,1).squeeze(1)    # [class, window, clip, feature]
-                    samples, _ = torch.max(samples, 1)           # [class, clip, feature]
+                    samples = torch.transpose(samples,0,2)        # [window, sample, class, clip, feature]
+                    samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM*CLIP_NUM,-1)
+                    memory = trans_encoder(samples)   # transformer encoder takes (length, batch, embedding)
 
-                    batches = torch.transpose(batches,1,2)       # [query*class*window, feature(channel), clip(length)]
+                    batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
                     batches = tcn(batches)
-                    batches = torch.transpose(batches,1,2)       # [query*class*window, clip, feature]
-
+                    batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
+                    batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM,-1)  # [query*class*window, clip, feature]
+                    batches_rn = batches.repeat(1,CLASS_NUM,1)      # [query*window*class, class*clip, feature]
+                    tgt = trans_decoder(batches_rn,memory)          # [query*window*class, class*clip, feature]
+                    
                     # Compute Relation
-                    samples_rn = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1)
-                    batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)
-                    batches_rn = torch.transpose(batches_rn,0,1)                      # [query*class*window, class, clip(length), feature(channel)]
+                    samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
+                    batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
                     relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
                     relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
                     
                     # Compute Zero Probability
-                    samples_rn0 = samples.reshape(CLASS_NUM*CLIP_NUM, -1).unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1)
-                    relations_rn0 = torch.cat((batches, samples_rn0), 1)
+                    relations_rn0 = torch.cat((batches, tgt), 1) # [query*class*window, (class+1)*clip, feature]
                     blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
                     # Generate final probabilities

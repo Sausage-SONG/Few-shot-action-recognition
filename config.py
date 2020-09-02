@@ -15,7 +15,7 @@ CLIP_NUM = 5                                # Num of clips per window
 WINDOW_NUM = 3                              # Num of processing window per video
 INST_NUM = 10                               # Num of videos selected in each class
 GPU = "4,5,8"                               # Index of GPU to be used
-EXP_NAME = "CTC_Kinetics400_Trans"                # Name of this experiment
+EXP_NAME = "CTC_MOT_Kinetics400_Trans"                # Name of this experiment
 
 # Dataset
 ##################################################################################################################
@@ -33,7 +33,7 @@ DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        # For HAA data
 
 # Saved Models & Optimizers & Schedulers
 ##################################################################################################################
-MAX_ACCURACY = 0            # Accuracy of the loaded model
+MAX_ACCURACY = 0             # Accuracy of the loaded model
                             # Leave 0 if N/A
 
 CHECKPOINT = "/data/ssongad/codes/ctc/models/CTC_Kinetics400_AdamW_FN/0.8752834467120181"             # Path of a folder, if you put everything in this folder with their DEFAULT names
