@@ -9,7 +9,7 @@ QUERY_NUM = 3                               # Num of instances for query per cla
 TRAIN_EPISODE = 30000                       # Num of training episode 
 VALIDATION_EPISODE = 70                     # Num of validation episode
 VALIDATION_FREQUENCY = 200                  # After each <X> training episodes, do validation once
-LEARNING_RATE = 0.0005                      # Initial learning rate
+LEARNING_RATE = 0.005                      # Initial learning rate
 FRAME_NUM = 10                              # Num of frames per clip
 CLIP_NUM = 5                                # Num of clips per window
 WINDOW_NUM = 3                              # Num of processing window per video
@@ -36,7 +36,7 @@ DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        # For HAA data
 MAX_ACCURACY = 0             # Accuracy of the loaded model
                             # Leave 0 if N/A
 
-CHECKPOINT = "/data/ssongad/codes/ctc/models/CTC_Kinetics400_AdamW_FN/0.8752834467120181"             # Path of a folder, if you put everything in this folder with their DEFAULT names
+CHECKPOINT = ""             # Path of a folder, if you put everything in this folder with their DEFAULT names
                             # If you have such a path, paths below are not necessary then
                             # Leave a blank string if N/A
 

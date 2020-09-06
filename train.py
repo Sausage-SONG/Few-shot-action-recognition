@@ -27,9 +27,10 @@ def main():
     # Define Models
     encoder = C3D(in_channels=3)
     encoder = nn.DataParallel(encoder)
-    rn = RN(CLIP_NUM, RELATION_DIM)
-    rn0 = RN0(CLIP_NUM*(CLASS_NUM+1), RELATION_DIM)
-    tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
+    rn = RN(1, RELATION_DIM)
+    rn0 = RN0(CLASS_NUM+1, RELATION_DIM)
+    tcn = TCN(10240, [512,256,128,TCN_OUT_CHANNEL])
+    tcn = nn.DataParallel(tcn)
     encoder_layer = TransformerEncoderLayer(TCN_OUT_CHANNEL,nhead=2)
     trans_encoder = TransformerEncoder(encoder_layer,1)
     decoder_layer = CustomTransformerDecoderLayer(TCN_OUT_CHANNEL,nhead=2)
@@ -69,18 +70,18 @@ def main():
     write_log(log)
 
     # Load Saved Models & Optimizers & Schedulers
-    if os.path.exists(ENCODER_MODEL):
-        encoder.load_state_dict(torch.load(ENCODER_MODEL))
-    if os.path.exists(RN_MODEL):
-        rn.load_state_dict(torch.load(RN_MODEL))
-    if os.path.exists(TCN_MODEL):
-        tcn.load_state_dict(torch.load(TCN_MODEL))
-    if os.path.exists(RN0_MODEL):
-        rn0.load_state_dict(torch.load(RN0_MODEL))
-    if os.path.exists(TRANS_EN):
-        trans_encoder.load_state_dict(torch.load(TRANS_EN))
-    if os.path.exists(TRANS_DE):
-        trans_decoder.load_state_dict(torch.load(TRANS_DE))
+    # if os.path.exists(ENCODER_MODEL):
+    #     encoder.load_state_dict(torch.load(ENCODER_MODEL))
+    # if os.path.exists(RN_MODEL):
+    #     rn.load_state_dict(torch.load(RN_MODEL))
+    # if os.path.exists(TCN_MODEL):
+    #     tcn.load_state_dict(torch.load(TCN_MODEL))
+    # if os.path.exists(RN0_MODEL):
+    #     rn0.load_state_dict(torch.load(RN0_MODEL))
+    # if os.path.exists(TRANS_EN):
+    #     trans_encoder.load_state_dict(torch.load(TRANS_EN))
+    # if os.path.exists(TRANS_DE):
+    #     trans_decoder.load_state_dict(torch.load(TRANS_DE))
     
     # if os.path.exists(ENCODER_OPTIM):
     #     encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
@@ -182,13 +183,15 @@ def main():
         write_log("{} | ".format(log), end="")
 
         # Compute Relation
-        samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
-        batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
-        relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
+        samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM, CLIP_NUM*TCN_OUT_CHANNEL).unsqueeze(1)         # [query*class*window*class, 1, clip*feature]
+        batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM, CLIP_NUM*TCN_OUT_CHANNEL).unsqueeze(1)  # [query*class*window*class, 1, clip*feature]
+        relations = torch.cat((samples_rn,batches_rn),1).view(-1,2,CLIP_NUM*TCN_OUT_CHANNEL)    # [query*class*window*class, 2(channel), clip*feature]
         relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
 
         # Compute Zero Probability
-        relations_rn0 = torch.cat((batches, tgt), 1) # [query*class*window, (class+1)*clip, feature]
+        samples_rn0 = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM, CLASS_NUM, -1)      # [query*window*class, class, clip*feature]
+        batches_rn0 = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM,-1).unsqueeze(1) # [query*window*class, 1, clip*feature]
+        relations_rn0 = torch.cat((batches_rn0, samples_rn0), 1)                      # [query*class*window, (class+1), clip*feature]
         blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
         log, timestamp = time_tick("Relation", timestamp)
@@ -297,13 +300,15 @@ def main():
                     tgt = trans_decoder(batches_rn,memory)          # [query*window*class, class*clip, feature]
                     
                     # Compute Relation
-                    samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
-                    batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM,CLIP_NUM,TCN_OUT_CHANNEL)
-                    relations = torch.cat((samples_rn,batches_rn),2).view(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, clip*2(channel), feature]
+                    samples_rn = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM, CLIP_NUM*TCN_OUT_CHANNEL).unsqueeze(1)         # [query*class*window*class, 1, clip*feature]
+                    batches_rn = batches_rn.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM*CLASS_NUM, CLIP_NUM*TCN_OUT_CHANNEL).unsqueeze(1)  # [query*class*window*class, 1, clip*feature]
+                    relations = torch.cat((samples_rn,batches_rn),1).view(-1,2,CLIP_NUM*TCN_OUT_CHANNEL)    # [query*class*window*class, 2(channel), clip*feature]
                     relations = rn(relations).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
                     
                     # Compute Zero Probability
-                    relations_rn0 = torch.cat((batches, tgt), 1) # [query*class*window, (class+1)*clip, feature]
+                    samples_rn0 = tgt.reshape(QUERY_NUM*WINDOW_NUM*CLASS_NUM, CLASS_NUM, -1)      # [query*window*class, class, clip*feature]
+                    batches_rn0 = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM,-1).unsqueeze(1) # [query*window*class, 1, clip*feature]
+                    relations_rn0 = torch.cat((batches_rn0, samples_rn0), 1)                      # [query*class*window, (class+1), clip*feature]
                     blank_prob = rn0(relations_rn0).view(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)
 
                     # Generate final probabilities
