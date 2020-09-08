@@ -169,16 +169,15 @@ def main():
         samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
         samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
         samples = torch.transpose(samples,0,2)        # [window, sample, class, clip, feature]
-        samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM*CLIP_NUM,-1)
+        samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM,-1)   # [window*sample(length), class(batch), clip*feature(embedding)]
         memory = trans_encoder(samples)   # transformer encoder takes (length, batch, embedding)
 
         batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
         batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM,-1)  # [query*class*window, clip, feature]
-        batches_rn = batches.repeat(1,CLASS_NUM,1)      # [query*window*class, class*clip, feature]
-        tgt = trans_decoder(batches_rn,memory)          # [query*window*class, class*clip, feature]
-        
+        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, 1, -1)  # [query*class*window, 1, clip*feature]
+        batches_rn = batches.repeat(1,CLASS_NUM,1)      # [query*window*class, class, clip*feature]
+        tgt = trans_decoder(batches_rn,memory)          # [query*window*class(length), class(batch), clip*feature(embedding)]
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
