@@ -13,7 +13,7 @@ import os                                            #
 WIDTH = HEIGHT = 128
 
 class HAADataset(Dataset):
-    def __init__(self, data_folders, classes, mode, class_num, video_num, inst_num, frame_num, clip_num, window_num):
+    def __init__(self, data_folders, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "test"]
 
@@ -23,12 +23,12 @@ class HAADataset(Dataset):
         self.frame_num = frame_num
         self.clip_num = clip_num
         self.window_num = window_num
-        self.data_folder_1 = os.path.join(data_folders[0], mode)
-        self.data_folder_2 = os.path.join(data_folders[1], mode)
-        self.data_folder_3 = os.path.join(data_folders[2], mode)
+        self.data_folder_1 = data_folders[0]
+        self.data_folder_2 = data_folders[1]
+        self.data_folder_3 = data_folders[2]
 
-        all_class_names = os.listdir(self.data_folder_1)
-        self.class_names = classes if classes is not None else random.sample(all_class_names, self.class_num)
+        all_class_names = splits[0] if self.mode == "train" else splits[1]
+        self.class_names = random.sample(all_class_names, self.class_num)
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
             self.labels[class_name] = i+1
@@ -90,15 +90,12 @@ class HAADataset(Dataset):
         
         # Process frames
         flip = random.randint(0,1)
-        # trans = random.randint(0,1)
-        # T = np.float32([[1,0,random.randint(-25,25)],[0,1,random.randint(-25,25)]])
         processed_frames = []
         for frame in all_frames:
             img = cv2.imread(frame)
             img = cv2.resize(img, (WIDTH, HEIGHT))
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = cv2.flip(img, 1) if flip else img
-            # img = cv2.warpAffine(img, T, (WIDTH, HEIGHT)) if trans else img
             processed_frames.append(img)
 
         frames = []
@@ -114,17 +111,18 @@ class HAADataset(Dataset):
         frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [video_clip, RGB, frame_num, H, W]
         frames = torch.Tensor(frames.copy())
 
-        noise = random.randint(0,1)
-        if self.mode == "train" and noise:
-            frames = frames + 0.1 * torch.randn(self.clip_num, 3, self.frame_num, WIDTH, HEIGHT)
+        # noise = random.randint(0,1)
+        # if self.mode == "train" and noise:
+        #     frames = frames + 0.1 * torch.randn(self.clip_num, 3, self.frame_num, WIDTH, HEIGHT)
 
         return frames, video_label
 
 class KineticsDataset(Dataset):
     def __init__(self, data_folder, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
         self.mode = mode
-        assert mode in ["train", "test"]
+        assert mode in ["train", "val", "test"]
 
+        # Attribute
         self.class_num = class_num
         self.video_num = video_num
         self.inst_num = inst_num
@@ -133,10 +131,18 @@ class KineticsDataset(Dataset):
         self.window_num = window_num
         self.data_folder = data_folder
 
-        all_class_names = splits[0] if self.mode == "train" else splits[1]
+        # Mode & Split
+        if self.mode == "train":
+            all_class_names = splits[0]
+        elif self.mode == "val":
+            all_class_names = splits[1]
+        else:
+            all_class_names = splits[2]
+
+        # Pick Classes
         while True:
             done = True
-            self.class_names = random.sample(all_class_names, self.class_num)
+            self.class_names = random.sample(all_class_names, self.class_num + 1)
             for class_name in self.class_names:
                 class_folder = os.path.join(self.data_folder, class_name)
                 if len(os.listdir(class_folder)) < self.inst_num:
@@ -146,7 +152,7 @@ class KineticsDataset(Dataset):
                 break
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
-            self.labels[class_name] = i+1
+            self.labels[class_name] = i
 
         self.video_folders = []
         self.video_labels = []
@@ -168,8 +174,17 @@ class KineticsDataset(Dataset):
         return len(self.video_folders)
     
     def print_dataset(self):
+        string = ""
         for i in range(len(self)):
-            print("[{}] {} {} {}".format(i, self.video_labels[i], self.video_folders[i], self.scales[i]))
+            string += "[{}] {} {} {}\n".format(i, self.video_labels[i], self.video_folders[i], self.scales[i])
+        
+        print(string)
+        return string
+    
+    def get_labels(self):
+        if self.mode == "test":
+            return self.labels
+        return None
 
     def __getitem__(self, idx):
         video_folder = self.video_folders[idx]
@@ -460,16 +475,20 @@ class AVADataset(Dataset):
 
 class ClassBalancedSampler(Sampler):
 
-    def __init__(self, num_per_class, num_cl, inst_num, shuffle):
+    def __init__(self, support, mode, num_per_class, class_num, inst_num, shuffle):
+        self.support = support
+        self.mode = mode
+        assert mode in ["train", "val", "test"]
+
         self.num_per_class = num_per_class
-        self.num_cl = num_cl
+        self.class_num = class_num
         self.inst_num = inst_num
         self.shuffle = shuffle
 
     def __iter__(self):
         # return a single list of indices, assuming that items will be grouped by class
         batch = []
-        for j in range(self.num_cl):
+        for j in range(self.class_num + 1):
             sublist = []
             for i in range(self.inst_num):
                 sublist.append(i+j*self.inst_num)
@@ -477,6 +496,7 @@ class ClassBalancedSampler(Sampler):
             sublist = sublist[:self.num_per_class]
             batch.append(sublist)
 
+        batch = batch[1:]
         batch = [item for sublist in batch for item in sublist]
 
         if self.shuffle:
@@ -487,9 +507,13 @@ class ClassBalancedSampler(Sampler):
     def __len__(self):
         return 1
 
-def get_data_loader(dataset, num_per_class, shuffle=False):
-    sampler = ClassBalancedSampler(num_per_class, dataset.class_num, dataset.inst_num, shuffle)
-    loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=0)
+def get_data_loader(dataset, support, num_per_class, shuffle=False):
+    if dataset.mode == "train" and not support:
+        sampler = ClassBalancedSampler(support, dataset.mode, num_per_class, dataset.class_num, dataset.inst_num, shuffle)
+        loader = DataLoader(dataset, batch_size=num_per_class*(dataset.class_num+1), sampler=sampler, num_workers=0)
+    else:
+        sampler = ClassBalancedSampler(support, dataset.mode, num_per_class, dataset.class_num, dataset.inst_num, shuffle)
+        loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=0)
     return loader
 
 # TCN_OUT_CHANNEL = 64                        # Num of channels of output of TCN

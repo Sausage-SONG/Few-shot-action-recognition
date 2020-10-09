@@ -3,6 +3,7 @@ import numpy as np
 import time
 import ctc
 from torch.nn.init import kaiming_normal_
+import os
 
 def print_stage(name, length=65, character="-"):
     Llength = int((length - len(name)) / 2)
@@ -42,6 +43,11 @@ def write_log(content, end="\n"):
     file.write(content+end)
     file.close()
 
+def write_error(content, end="\n"):
+    file = open("error.txt", "a")
+    file.write(content+end)
+    file.close()
+
 def time_tick(name, t0=None):
     if t0 is None:
         return time.time()
@@ -60,3 +66,15 @@ def ctc_predict(input):
 
 def weights_init(m):
     kaiming_normal_(m.weight)
+
+def read_split(file_path):
+    result = []
+    if os.path.exists(file_path):
+        file = open(file_path, "r")
+        lines = file.readlines()
+        file.close()
+
+        for line in lines:
+            result.append(line.rstrip())
+            
+    return result

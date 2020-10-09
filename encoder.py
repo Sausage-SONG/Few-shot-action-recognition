@@ -241,8 +241,6 @@ class Simple3DEncoder(nn.Module):
         self.l3 = Unit3D(in_channels=64, output_channels=64, kernel_shape=[1, 1, 1], padding=0)
         self.l4 = Unit3D(in_channels=64, output_channels=192, kernel_shape=[3, 3, 3], padding=1)
         self.l5 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
-        self.l6 = Unit3D(in_channels=192, output_channels=32, kernel_shape=[3, 3, 3], padding=1)
-        self.l7 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
 
         self.apply(weights_init)
     
@@ -252,8 +250,6 @@ class Simple3DEncoder(nn.Module):
         x = self.l3(x)
         x = self.l4(x)
         x = self.l5(x)
-        x = self.l6(x)
-        x = self.l7(x)
 
         return x
 
