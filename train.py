@@ -130,6 +130,13 @@ def main():
     episode = 0
     while episode < TRAIN_EPISODE:
 
+        # Training Mode
+        encoder.train()
+        tcn.train()
+        ap.train()
+        rn.train()
+        rn0.train()
+
         print("Train_Epi[{}|{}] Pres_Accu = {}".format(episode, skipped, max_accuracy), end="\t")
         write_log("Training Episode {} | ".format(episode), end="")
         timestamp = time_tick("Restart")
@@ -171,28 +178,15 @@ def main():
         samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
         samples = tcn(samples)
         samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
-<<<<<<< Updated upstream
-        samples = samples.view(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM, CLIP_NUM, -1)  # [class, sample, window, clip, feature]
-        samples = torch.transpose(samples,0,2)        # [window, sample, class, clip, feature]
-        samples = samples.reshape(WINDOW_NUM*SAMPLE_NUM,CLASS_NUM,-1)   # [window*sample(length), class(batch), clip*feature(embedding)]
-        memory = trans_encoder(samples)   # transformer encoder takes (length, batch, embedding)
-=======
         samples = samples.reshape(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [class*sample*window, clip, feature]
         # samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
         # samples = torch.mean(samples,1)              # [class, clip, feature]
->>>>>>> Stashed changes
 
         batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
         batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-<<<<<<< Updated upstream
-        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, 1, -1)  # [query*class*window, 1, clip*feature]
-        batches_rn = batches.repeat(1,CLASS_NUM,1)      # [query*window*class, class, clip*feature]
-        tgt = trans_decoder(batches_rn,memory)          # [query*window*class(length), class(batch), clip*feature(embedding)]
-=======
         batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
 
->>>>>>> Stashed changes
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
@@ -277,6 +271,14 @@ def main():
         # Validation Loop
         if (episode % VALIDATION_FREQUENCY == 0 and episode != 0) or episode == TRAIN_EPISODE:
             write_log("\n")
+
+            # Validation Mode
+            encoder.eval()
+            tcn.eval()
+            ap.eval()
+            rn.eval()
+            rn0.eval()
+
             with torch.no_grad():
                 accuracies = []
 
