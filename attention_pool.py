@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-
-def weights_init(m):
-    try:
-        kaiming_normal_(m.weight)
-    except Exception:
-        return
+from torch.nn.init import kaiming_normal_ as kaiming
+from torch.nn.init import xavier_normal_ as xavier
 
 class AttentionPooling(nn.Module):
     def __init__(self, class_num, sample_num, query_num, window_num, clip_num, feature_dim):
@@ -54,3 +50,33 @@ class AttentionPooling(nn.Module):
         samples = samples.reshape(self.query_dim, self.class_num, self.clip_num, -1)  # [query*(class+1)*window, class, clip, feature]
 
         return samples
+
+class KNNCutDimentsion(nn.Module):
+    def __init__(self, in_channel, in_dim, target_dim):
+        super(KNNCutDimentsion, self).__init__()
+        self.layer1 = nn.Sequential(
+                        nn.Conv1d(in_channel, in_channel*2, kernel_size=3, padding=2),
+                        nn.ReLU())
+        self.layer2 = nn.Sequential(
+                        nn.Conv1d(in_channel*2, 1, kernel_size=3),
+                        nn.ReLU())
+        self.fc = nn.Linear(in_dim, target_dim)
+
+        self.weights_init()
+
+    def forward(self, X):
+        X = self.layer1(X)
+        X = self.layer2(X)
+
+        X = self.fc(X)
+        X = X.squeeze(1)
+
+        return X
+
+    def weights_init(self):
+        kaiming(self.layer1[0].weight, mode='fan_out', nonlinearity='relu')
+        kaiming(self.layer2[0].weight, mode='fan_out', nonlinearity='relu')
+        kaiming(self.fc.weight, mode='fan_out', nonlinearity='relu')
+
+
+
