@@ -118,7 +118,7 @@ class HAADataset(Dataset):
         return frames, video_label
 
 class KineticsDataset(Dataset):
-    def __init__(self, data_folder, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
+    def __init__(self, data_folders, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "val", "test"]
 
@@ -129,7 +129,7 @@ class KineticsDataset(Dataset):
         self.frame_num = frame_num
         self.clip_num = clip_num
         self.window_num = window_num
-        self.data_folder = data_folder
+        self.data_folders = data_folders
 
         # Mode & Split
         if self.mode == "train":
@@ -138,37 +138,44 @@ class KineticsDataset(Dataset):
             all_class_names = splits[1]
         else:
             all_class_names = splits[2]
+        random.shuffle(all_class_names)
+        self.class_names = all_class_names[:class_num+1]
 
         # Pick Classes
-        while True:
-            done = True
-            self.class_names = random.sample(all_class_names, self.class_num + 1)
-            for class_name in self.class_names:
-                class_folder = os.path.join(self.data_folder, class_name)
-                if len(os.listdir(class_folder)) < self.inst_num:
-                    done = False
-                    break
-            if done:
-                break
         self.labels = dict()
         for i, class_name in enumerate(self.class_names):
             self.labels[class_name] = i
 
+        # Find all videos
         self.video_folders = []
         self.video_labels = []
-        self.scales = []
         for class_name in self.class_names:
+            video_folders = []
+            video_labels = []
             label = self.labels[class_name]
-            class_folder = os.path.join(self.data_folder, class_name)
-            video_names = os.listdir(class_folder)
-            random.shuffle(video_names)
-            video_names = video_names[:self.inst_num]
 
-            for video_name in video_names:
-                random_stretch = random.randint(1,3)
-                self.video_folders.append(os.path.join(class_folder, video_name))
-                self.video_labels.append(label)
-                self.scales.append(random_stretch)
+            for data_folder in self.data_folders:
+                class_folder = os.path.join(data_folder, class_name)
+                video_names = os.listdir(class_folder) if os.path.exists(class_folder) else []
+
+                for video_name in video_names:
+                    video_path = os.path.join(class_folder, video_name)
+                    if len(os.listdir(video_path)) >= self.frame_num:
+                        video_folders.append(video_path)
+                        video_labels.append(self.labels[class_name])
+
+            # Pick <self.inst_num> random videos
+            zip_list = list(zip(video_folders, video_labels))
+            random.shuffle(zip_list)
+            zip_list = zip_list[:self.inst_num]
+            video_folders, video_labels = zip(*zip_list)
+
+            self.video_folders.extend(video_folders)
+            self.video_labels.extend(video_labels)
+
+        self.scales = []
+        for i in range(len(self.video_folders)):
+            self.scales.append(random.randint(2,4))
 
     def __len__(self):
         return len(self.video_folders)
@@ -193,37 +200,32 @@ class KineticsDataset(Dataset):
 
         all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
         all_frames.sort()
-        if len(all_frames) > 150:
-            all_frames = all_frames[::scale]
+        all_frames = all_frames[::scale]
 
         length = len(all_frames)
         stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
-        expected_length = (self.clip_num*self.window_num-1)*stride + self.frame_num
-        
-        # Deal with length difference
-        if expected_length <= length:
-            all_frames = all_frames[:expected_length]
-        else:
-            tmp = all_frames[-1]
-            for _ in range(expected_length - length):
-                all_frames.append(tmp)
         
         selected_frames = []
         for i in range(self.clip_num*self.window_num):
             selected_frames.extend(list(range(i*stride, i*stride+self.frame_num)))
+        for i in range(len(selected_frames)):
+            if selected_frames[i] >= length:
+                selected_frames[i] = length - 1
         
         # Process frames
+        processed_frames = [None] * length
         flip = random.randint(0,1)
         # trans = random.randint(0,1)
         # T = np.float32([[1,0,random.randint(-25,25)],[0,1,random.randint(-25,25)]])
-        processed_frames = []
-        for frame in all_frames:
-            img = cv2.imread(frame)
-            img = cv2.resize(img, (WIDTH, HEIGHT))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.flip(img, 1) if flip else img
-            # img = cv2.warpAffine(img, T, (WIDTH, HEIGHT)) if trans else img
-            processed_frames.append(img)
+        for idx in selected_frames:
+            if processed_frames[idx] is None:
+                frame = all_frames[idx]
+                img = cv2.imread(frame)
+                img = cv2.resize(img, (WIDTH, HEIGHT))   
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = cv2.flip(img, 1) if flip else img
+                # img = cv2.warpAffine(img, T, (WIDTH, HEIGHT)) if trans else img
+                processed_frames[idx] = img
 
         frames = []
         for i, frame_idx in enumerate(selected_frames):
@@ -241,136 +243,6 @@ class KineticsDataset(Dataset):
         noise = random.randint(0,1)
         if self.mode == "train" and noise:
             frames = frames + 0.1 * torch.randn(self.window_num*self.clip_num, 3, self.frame_num, WIDTH, HEIGHT)
-
-        return frames, video_label
-
-class FullKineticsDataset(Dataset):
-    def __init__(self, data_folder, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
-        self.mode = mode
-        assert mode in ["train", "test"]
-
-        self.class_num = class_num
-        self.video_num = video_num
-        self.inst_num = inst_num
-        self.frame_num = frame_num
-        self.clip_num = clip_num
-        self.window_num = window_num
-        self.data_folder = data_folder
-
-        all_class_names = splits[0] if self.mode == "train" else splits[1]
-        while True:
-            done = True
-            self.class_names = random.sample(all_class_names, self.class_num)
-            for class_name in self.class_names:
-                class_folder = os.path.join(self.data_folder, class_name)
-                if len(os.listdir(class_folder)) < self.inst_num:
-                    done = False
-                    break
-            if done:
-                break
-        self.labels = dict()
-        for i, class_name in enumerate(self.class_names):
-            self.labels[class_name] = i+1
-
-        self.video_folders = []
-        self.video_names = []
-        self.video_labels = []
-        self.scales = []
-        for class_name in self.class_names:
-            label = self.labels[class_name]
-            class_folder = os.path.join(self.data_folder, class_name)
-            video_names = self.get_video_names(class_folder)
-            random.shuffle(video_names)
-            video_names = video_names[:self.inst_num]
-
-            for video_name in video_names:
-                random_stretch = random.randint(1,3)
-                self.video_folders.append(class_folder)
-                self.video_names.append(video_name)
-                self.video_labels.append(label)
-                self.scales.append(random_stretch)
-    
-    def get_video_names(self, class_folder):
-        video_names = []
-        frame_names = os.listdir(class_folder)
-        for frame_name in frame_names:
-            frame_name, _ = os.path.splitext(frame_name)
-            frame_name = frame_name[:-4]
-            video_names.append(frame_name)
-        return list(set(video_names))
-
-    def __len__(self):
-        return len(self.video_folders)
-    
-    def print_dataset(self):
-        for i in range(len(self)):
-            print("[{}] {} {} {}".format(i, self.video_labels[i], self.video_folders[i], self.scales[i]))
-
-    def __getitem__(self, idx):
-        video_folder = self.video_folders[idx]
-        video_name = self.video_names[idx]
-        video_label = self.video_labels[idx]
-        scale = self.scales[idx]
-
-        all_frames = []
-        i = 1
-        while True:
-            frame_name = "0000" + str(i)
-            frame_name = video_name + frame_name[-4:] + ".jpg"
-            frame_path = os.path.join(video_folder, frame_name)
-            if os.path.exists(frame_path):
-                all_frames.append(frame_path)
-                i += 1
-            else:
-                break
-        all_frames.sort()
-        all_frames = all_frames[::scale]
-
-        length = len(all_frames)
-        stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
-        expected_length = (self.clip_num*self.window_num-1)*stride + self.frame_num
-        
-        # Deal with length difference
-        if expected_length <= length:
-            all_frames = all_frames[:expected_length]
-        else:
-            tmp = all_frames[-1]
-            for _ in range(expected_length - length):
-                all_frames.append(tmp)
-        
-        selected_frames = []
-        for i in range(self.clip_num*self.window_num):
-            selected_frames.extend(list(range(i*stride, i*stride+self.frame_num)))
-        
-        # Process frames
-        flip = random.randint(0,1)
-        # trans = random.randint(0,1)
-        # T = np.float32([[1,0,random.randint(-25,25)],[0,1,random.randint(-25,25)]])
-        processed_frames = []
-        for frame in all_frames:
-            img = cv2.imread(frame)
-            img = cv2.resize(img, (WIDTH, HEIGHT))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.flip(img, 1) if flip else img
-            # img = cv2.warpAffine(img, T, (WIDTH, HEIGHT)) if trans else img
-            processed_frames.append(img)
-
-        frames = []
-        for i, frame_idx in enumerate(selected_frames):
-            j = i % self.frame_num
-            if j == 0:
-                frames.append([])
-            
-            frame = processed_frames[frame_idx].copy()
-            frames[-1].append(frame)
-        
-        frames = np.array(frames) / 127.5 - 1              # -1 to 1 # [num_frame, h, w, channel]
-        frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [window*clip, RGB, frame_num, H, W]
-        frames = torch.Tensor(frames.copy())
-        
-        # noise = random.randint(0,1)
-        # if self.mode == "train" and noise:
-        #     frames = frames + 0.1 * torch.randn(self.window_num*self.clip_num, 3, self.frame_num, WIDTH, HEIGHT)
 
         return frames, video_label
 
@@ -507,31 +379,41 @@ class ClassBalancedSampler(Sampler):
     def __len__(self):
         return 1
 
-def get_data_loader(dataset, support, num_per_class, shuffle=False):
+def get_data_loader(dataset, support, num_per_class, shuffle=False, num_workers=0):
     if dataset.mode == "train" and not support:
         sampler = ClassBalancedSampler(support, dataset.mode, num_per_class, dataset.class_num, dataset.inst_num, shuffle)
-        loader = DataLoader(dataset, batch_size=num_per_class*(dataset.class_num+1), sampler=sampler, num_workers=0)
+        loader = DataLoader(dataset, batch_size=num_per_class*(dataset.class_num+1), sampler=sampler, num_workers=num_workers)
     else:
         sampler = ClassBalancedSampler(support, dataset.mode, num_per_class, dataset.class_num, dataset.inst_num, shuffle)
-        loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=0)
+        loader = DataLoader(dataset, batch_size=num_per_class*dataset.class_num, sampler=sampler, num_workers=num_workers)
     return loader
 
 # TCN_OUT_CHANNEL = 64                        # Num of channels of output of TCN
 # RELATION_DIM = 32                           # Dim of one layer of relation net
-# CLASS_NUM = 3                               # <X>-way  | Num of classes
+# CLASS_NUM = 5                               # <X>-way  | Num of classes
 # SAMPLE_NUM = 5                              # <Y>-shot | Num of supports per class
 # QUERY_NUM = 3                               # Num of instances for query per class
-# TRAIN_EPISODE = 20000                       # Num of training episode 
-# VALIDATION_EPISODE = 100                    # Num of validation episode
+# TRAIN_EPISODE = 30000                       # Num of training episode 
+# VALIDATION_EPISODE = 50                     # Num of validation episode
 # VALIDATION_FREQUENCY = 200                  # After each <X> training episodes, do validation once
 # LEARNING_RATE = 0.0001                      # Initial learning rate
 # FRAME_NUM = 10                              # Num of frames per clip
 # CLIP_NUM = 5                                # Num of clips per window
 # WINDOW_NUM = 3                              # Num of processing window per video
-# INST_NUM = 10                               # Num of videos selected in each class
-# DATA_FOLDER = "/data/ssongad/kinetics400/frame/train"
-# TRAIN_SPLIT = "/data/ssongad/kinetics400/train.txt"                  # For Kinetics dataset only
-# TEST_SPLIT = "/data/ssongad/kinetics400/test.txt"                    #
+# INST_NUM = 15                               # Num of videos selected in each class
+# GPU = "4,5,6,7,8"                           # Index of GPU to be used
+# EXP_NAME = "(tmp)CTC_Blank_MOT_Kinetics400_Attention_v2_5W5S"                # Name of this experiment
+
+# # Dataset
+# ##################################################################################################################
+# DATASET = "kinetics"             # "kinetics" or "haa" or "full_kinetics"
+
+# TRAIN_SPLIT = "splits/tmp_train.txt"                
+# VAL_SPLIT = "splits/tmp_val.txt"
+# TEST_SPLIT = "splits/test.txt"                    
+
+# KINETICS_DATA_FOLDERS = ["/data/ssongad/kinetics400/frame/train",
+#                          "/data/ssongad/kinetics400/frame/test"]
 # def read_split(file_path):
 #     result = []
 #     if os.path.exists(file_path):
@@ -545,6 +427,8 @@ def get_data_loader(dataset, support, num_per_class, shuffle=False):
 #     return result
 
 # TRAIN_SPLIT = read_split(TRAIN_SPLIT)
+# VAL_SPLIT = read_split(VAL_SPLIT)
 # TEST_SPLIT = read_split(TEST_SPLIT)
-# the_dataset = FullKineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-# print(the_dataset[1])
+# the_dataset = KineticsDataset(KINETICS_DATA_FOLDERS, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+# sample_dataloader = get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM, num_workers=5)
+# samples, _ = sample_dataloader.__iter__().next()

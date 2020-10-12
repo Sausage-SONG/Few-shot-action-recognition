@@ -11,7 +11,9 @@ from relationNet import RelationNetworkZero as RN0  #
 # from i3d import InceptionI3d as I3D               #  I3D
 from encoder import Simple3DEncoder as C3D          #  Conv3D
 from tcn import TemporalConvNet as TCN              #  TCN
-from attention_pool import AttentionPooling as AP   #  Attention Pooling
+from kmeans_pytorch import kmeans                   #  KNN
+from attention_pool import KNNCutDimentsion as KNNC # KNN Cut Dimension
+
 import dataset                                      #  Dataset
 from utils import *                                 #  Helper Functions
 from config import *                                #  Config
@@ -26,45 +28,46 @@ def main():
 
     # Define Models
     encoder = C3D(in_channels=3) 
-    tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])  
-    ap = AP(CLASS_NUM, SAMPLE_NUM, QUERY_NUM, WINDOW_NUM, CLIP_NUM, TCN_OUT_CHANNEL)
-    rn = RN(CLIP_NUM, RELATION_DIM) 
-    rn0 = RN0(CLIP_NUM*(CLASS_NUM+1), RELATION_DIM)
+    tcn = TCN(245760, [128,128,64,TCN_OUT_CHANNEL])
+    knnc = KNNC(CLIP_NUM, TCN_OUT_CHANNEL, KNN_IN_DIM) 
+    # rn = RN(CLIP_NUM, RELATION_DIM)
+    # rn0 = RN0(CLIP_NUM*(CLASS_NUM+1), RELATION_DIM)
     
     encoder = nn.DataParallel(encoder)
     # tcn = nn.DataParallel(tcn)
-    # ap = nn.DataParallel(ap)
     # rn = nn.DataParallel(rn)
     # rn0 = nn.DataParallel(rn0)
 
-    ctc = nn.CTCLoss()
+    ctc = nn.CTCLoss(reduction='none')
     logSoftmax = nn.LogSoftmax(2)
+    cos = nn.CosineSimilarity(dim=1)
     mse = nn.MSELoss()   
 
     # Move models to computing device
     encoder.to(device)
     tcn.to(device)
-    ap.to(device)
-    rn.to(device)
-    rn0.to(device)
+    knnc.to(device)
+    # rn.to(device)
+    # rn0.to(device)
 
     ctc.to(device)
     mse.to(device)
     logSoftmax.to(device)
+    cos.to(device)
 
     # Define Optimizers
     encoder_optim = torch.optim.AdamW(encoder.parameters(), lr=LEARNING_RATE)
-    rn_optim = torch.optim.AdamW(rn.parameters(), lr=LEARNING_RATE)
+    # rn_optim = torch.optim.AdamW(rn.parameters(), lr=LEARNING_RATE)
     tcn_optim = torch.optim.AdamW(tcn.parameters(), lr=LEARNING_RATE)
-    rn0_optim = torch.optim.AdamW(rn0.parameters(), lr=LEARNING_RATE)
-    ap_optim = torch.optim.AdamW(ap.parameters(), lr=LEARNING_RATE)
+    knnc_optim = torch.optim.AdamW(knnc.parameters(), lr=LEARNING_RATE)
+    # rn0_optim = torch.optim.AdamW(rn0.parameters(), lr=LEARNING_RATE)
 
     # Define Schedulers
     encoder_scheduler = StepLR(encoder_optim, step_size=2000, gamma=0.5)
-    rn_scheduler = StepLR(rn_optim, step_size=2000, gamma=0.5)
+    # rn_scheduler = StepLR(rn_optim, step_size=2000, gamma=0.5)
     tcn_scheduler = StepLR(tcn_optim, step_size=2000, gamma=0.5)
-    rn0_scheduler = StepLR(rn0_optim, step_size=2000, gamma=0.5)
-    ap_scheduler = StepLR(ap_optim, step_size=2000, gamma=0.5)
+    knnc_scheduler = StepLR(knnc_optim, step_size=2000, gamma=0.5)
+    # rn0_scheduler = StepLR(rn0_optim, step_size=2000, gamma=0.5)
 
     log, timestamp = time_tick("Definition", timestamp)
     write_log(log)
@@ -76,37 +79,37 @@ def main():
     if os.path.exists(TCN_MODEL):
         tcn.load_state_dict(torch.load(TCN_MODEL))
         write_log("TCN Loaded")
-    if os.path.exists(AP_MODEL):
-        ap.load_state_dict(torch.load(AP_MODEL))
-        write_log("AP Loaded")
-    if os.path.exists(RN_MODEL):
-        rn.load_state_dict(torch.load(RN_MODEL))
-        write_log("RN Loaded")
-    if os.path.exists(RN0_MODEL):
-        rn0.load_state_dict(torch.load(RN0_MODEL))
-        write_log("RN0 Loaded")
+    if os.path.exists(KNNC_MODEL):
+        knnc.load_state_dict(torch.load(KNNC_MODEL))
+        write_log("KNNC Loaded")
+    # if os.path.exists(RN_MODEL):
+    #     rn.load_state_dict(torch.load(RN_MODEL))
+    #     write_log("RN Loaded")
+    # if os.path.exists(RN0_MODEL):
+    #     rn0.load_state_dict(torch.load(RN0_MODEL))
+    #     write_log("RN0 Loaded")
     
-    # if os.path.exists(ENCODER_OPTIM):
-    #     encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
+    if os.path.exists(ENCODER_OPTIM):
+        encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
     # if os.path.exists(RN_OPTIM):
     #     rn_optim.load_state_dict(torch.load(RN_OPTIM))
-    # if os.path.exists(TCN_OPTIM):
-    #     tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
+    if os.path.exists(TCN_OPTIM):
+        tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
+    if os.path.exists(KNNC_OPTIM):
+        knnc_optim.load_state_dict(torch.load(KNNC_OPTIM))
     # if os.path.exists(RN0_OPTIM):
     #     rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
-    # if os.path.exists(AP_OPTIM):
-    #     ap_optim.load_state_dict(torch.load(AP_OPTIM))
     
-    # if os.path.exists(ENCODER_SCHEDULER):
-    #     encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
+    if os.path.exists(ENCODER_SCHEDULER):
+        encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
     # if os.path.exists(RN_SCHEDULER):
     #     rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
-    # if os.path.exists(TCN_SCHEDULER):
-    #     tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
+    if os.path.exists(TCN_SCHEDULER):
+        tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
+    if os.path.exists(KNNC_SCHEDULER):
+        knnc_scheduler.load_state_dict(torch.load(KNNC_SCHEDULER))
     # if os.path.exists(RN0_SCHEDULER):
     #     rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
-    # if os.path.exists(AP_SCHEDULER):
-    #     ap_scheduler.load_state_dict(torch.load(AP_SCHEDULER))
 
     max_accuracy = MAX_ACCURACY     # Currently the best accuracy
     accuracy_history = []           # Only for logging
@@ -120,8 +123,7 @@ def main():
     write_log(log)
     
     # Some Constant Tensors
-    input_lengths = torch.full(size=(QUERY_NUM*CLASS_NUM,), fill_value=WINDOW_NUM, dtype=torch.long).to(device)
-    target_lengths = torch.full(size=(QUERY_NUM*CLASS_NUM,), fill_value=1, dtype=torch.long).to(device)
+    input_lengths = torch.full(size=(QUERY_NUM*CLASS_NUM*CLASS_NUM*SAMPLE_NUM,), fill_value=WINDOW_NUM, dtype=torch.long).to(device)
     # zeros = torch.zeros(QUERY_NUM*CLASS_NUM, WINDOW_NUM).to(device)
 
     skipped = 0
@@ -130,29 +132,32 @@ def main():
     episode = 0
     while episode < TRAIN_EPISODE:
 
+        print("Train_Epi[{}|{}] Pres_Accu = {:.5}".format(episode, skipped, max_accuracy), end="\t")
+        write_log("Training Episode {} | ".format(episode), end="")
+        timestamp = time_tick("Restart")
+
         # Training Mode
         encoder.train()
         tcn.train()
-        ap.train()
-        rn.train()
-        rn0.train()
+        knnc.train()
 
-        print("Train_Epi[{}|{}] Pres_Accu = {}".format(episode, skipped, max_accuracy), end="\t")
-        write_log("Training Episode {} | ".format(episode), end="")
-        timestamp = time_tick("Restart")
+        # Zero Grad
+        encoder.zero_grad()
+        tcn.zero_grad()
+        knnc.zero_grad()
+        # rn.zero_grad()
+        # rn0.zero_grad()
 
         # Setup Data
         try:
             if DATASET == "haa":
                 the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
             elif DATASET == "kinetics":
-                the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-            elif DATASET == "full_kinetics":
-                the_dataset = dataset.FullKineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-            sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM)
-            batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True)
+                the_dataset = dataset.KineticsDataset(KINETICS_DATA_FOLDERS, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+            sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM, num_workers=0)
+            batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True, num_workers=0)
             samples, _ = sample_dataloader.__iter__().next()             # [support*class, window*clip, RGB, frame, H, W]
-            batches, batches_labels = batch_dataloader.__iter__().next()   # [query*(class+1), window*clip, RGB, frame, H, W]
+            batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
         except Exception:
             skipped += 1
             print("Skipped")
@@ -177,95 +182,108 @@ def main():
         # TCN Processing
         samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
         samples = tcn(samples)
-        samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
-        samples = samples.reshape(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [class*sample*window, clip, feature]
-        # samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
-        # samples = torch.mean(samples,1)              # [class, clip, feature]
+        samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature(TCN)]
+        samples = samples.reshape(-1, CLIP_NUM, TCN_OUT_CHANNEL)  # [class*sample*window, clip, feature(TCN)]
 
         batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
         batches = tcn(batches)
-        batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
+        batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature(TCN)]
+        batches = batches.reshape(-1, CLIP_NUM, TCN_OUT_CHANNEL)  # [query*class*window, clip, feature(TCN)]
+
+        batches = batches.detach()
 
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
-        # Attention Pooling
-        samples = ap(samples, batches)                    # [query*class*window, class, clip, feature]
-        # samples_trans = torch.transpose(samples, 0, 1)    # [clip, class*sample*window, feature]
-        # samples_trans = torch.transpose(samples_trans, 1, 2)    # [clip, feature, class*sample*window]
-        # weight = torch.tensordot(batches, samples_trans, dims=2) # [query*class*window, class*sample*window]
-        # weight = weight.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM).unsqueeze(1) # [query*class*window*class, 1, sample*window]
-        # samples = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1).reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM, -1) # [query*class*window*class, sample*window, clip*feature]
-        # samples = torch.bmm(weight, samples).squeeze(1).reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM, CLIP_NUM, TCN_OUT_CHANNEL)   # [query*class*window, class, clip, feature]
+        # KNN
+        samples = knnc(samples)  # [class*sample*window, feature(KNN)]
+        batches = knnc(batches)  # [query*class*window, feature(KNN)]
+
+        cluster_ids, cluster_centers = kmeans(X=samples, num_clusters=CLUSTER_NUM, distance='cosine', device=device) # [cluster, clip*feature]
+        if cluster_ids is None:
+            print("KNN Skipped")
+            write_log("KNN Error")
+            continue
+        cluster_ids = (cluster_ids+1).reshape(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM) # [class, support, window]
+
+        log, timestamp = time_tick("KNN", timestamp)
+        write_log("{} | ".format(log), end="")
 
         # Compute Relation
-        batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)  # [class, query*class*window, clip, feature]
-        batches_rn = torch.transpose(batches_rn,0,1)               # [query*class*window, class, clip, feature]
-        relations = torch.cat((samples,batches_rn),2).reshape(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, class, clip*2(channel), feature]
-        relations = rn(relations).reshape(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
+        batches_rn = batches.unsqueeze(1).repeat(1,CLUSTER_NUM,1).reshape(-1, KNN_IN_DIM) # [query*class*window*cluster, feature]
+        cluster_centers_rn = cluster_centers.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM, 1, 1).reshape(-1, KNN_IN_DIM).to(device) # [query*class*window*cluster, feature]
+        relations = cos(batches_rn, cluster_centers_rn).reshape(-1, WINDOW_NUM, CLUSTER_NUM) # [query*class, window, cluster]
 
         # Compute Zero Probability
-        samples_rn0 = samples.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM*CLIP_NUM, TCN_OUT_CHANNEL)  # [query*class*window, class*clip, feature]
-        relations_rn0 = torch.cat((batches, samples_rn0), 1)   # [query*class*window, (class+1)*clip, feature]
-        blank_prob = rn0(relations_rn0).reshape(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)  # [query*class, window, 1]
-        # blank_prob = Variable(torch.full((QUERY_NUM*(CLASS_NUM+1), WINDOW_NUM, 1), 0.01)).to(device)
+        blank_prob = torch.full((QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1), 1e-08, layout=torch.strided, device=device, requires_grad=True) # [query*class, window, 1]
+
+        # Generate final probabilities
+        final_outcome = torch.cat((blank_prob, relations), 2)             # [query*class, window(length), cluster+1]
+        final_outcome = final_outcome.unsqueeze(1).repeat(1, SAMPLE_NUM*CLASS_NUM, 1, 1).reshape(-1, WINDOW_NUM, CLUSTER_NUM+1) # [query*class*class*support, window(length), cluster+1]
+        final_outcome = torch.transpose(logSoftmax(final_outcome), 0, 1)  # [window(length), query*class*class*support, cluster+1]
+
+        # Generate Target Labels
+        target = cluster_ids.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM, 1, 1, 1) # [query*class, class, support, window]
+        # target = target[torch.arange(target.size(0)), batches_labels-1] # [query*class, support, window]
+        target = target.reshape(-1, WINDOW_NUM) # [query*class*class*support, window]
+
+        target_lengths, target_mask = ctc_length_mask(target)
+        target = target.reshape(-1) # [query*class*class*support*window]
+        target = target[target_mask.reshape(-1)] # [SUM(target_lengths)]
 
         log, timestamp = time_tick("Relation", timestamp)
         write_log("{} | ".format(log), end="")
 
-        # Generate final probabilities
-        relations = torch.cat((blank_prob, relations), 2)             # [query*class, window(length), class+1]
-        final_outcome = torch.transpose(logSoftmax(relations), 0, 1)  # [window(length), query*class, class+1]
-
         # Compute Loss
-        # relations = nn.functional.softmax(relations).reshape(QUERY_NUM*(CLASS_NUM+1)*WINDOW_NUM, CLASS_NUM+1)
-        # batches_labels = batches_labels.unsqueeze(1).repeat(1,WINDOW_NUM).view(QUERY_NUM*(CLASS_NUM+1)*WINDOW_NUM)
-        # one_hot_labels = Variable(torch.zeros(QUERY_NUM*(CLASS_NUM+1)*WINDOW_NUM, CLASS_NUM+1).scatter_(1, batches_labels.view(-1,1), 1).to(device))
-        # loss = mse(relations, one_hot_labels)
-        loss = ctc(final_outcome, batches_labels, input_lengths, target_lengths)
-        print("Loss = {}".format(loss))
+        # relations = relations.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM)
+        # batches_labels = batches_labels.unsqueeze(1).repeat(1,WINDOW_NUM).view(QUERY_NUM*CLASS_NUM*WINDOW_NUM)
+        # one_hot_labels = Variable(torch.zeros(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM).scatter_(1, batches_labels.view(-1,1), 1).to(device))
+        # loss = mse(relations,one_hot_labels)
+        
+        ctc_loss = ctc(final_outcome, target, input_lengths, target_lengths).reshape(-1, CLASS_NUM, SAMPLE_NUM) # [query*class, class, support]
+        ctc_loss = torch.mean(ctc_loss, 2) # [query*class, class]
 
-        # if torch.isnan(loss):
-        #     write_error("Error @ Training {} <Loss is NaN>".format(episode))
-        #     write_error("<final_outcome>\n"+str(final_outcome))
-        #     write_error("<rn0>\n"+str(rn0.state_dict()))
-        #     write_error("<rn>\n"+str(rn.state_dict()))
-        #     write_error("<encoder>\n"+str(encoder.state_dict()))
-        #     write_error("")
+        ctc_loss_correct = ctc_loss[torch.arange(ctc_loss.size(0)), batches_labels-1] # [query*class]
+        ctc_loss_correct = torch.mean(ctc_loss_correct)
+        ctc_loss_correct.backward(retain_graph=True)
+        
+        mse_one_hot = Variable(torch.zeros(QUERY_NUM*CLASS_NUM, CLASS_NUM).scatter_(1, (batches_labels-1).view(-1,1), 1).to(device)) # [query*class, class]
+        ctc_prob = 1 - nn.functional.softmax(ctc_loss, 1) # [query*class, class]
+        mse_loss = mse(ctc_prob, mse_one_hot)
+        mse_loss.backward()
+        
+        
+        print("CTC Loss = {:.4} ".format(ctc_loss_correct), end="")
+        print("MSE Loss = {:.4} ".format(mse_loss))
 
-        # Back Propagation
-        encoder.zero_grad()
-        tcn.zero_grad()
-        ap.zero_grad()
-        rn.zero_grad()
-        rn0.zero_grad()
-        loss.backward()
+        # for name, parms in encoder.named_parameters():	
+        #     print('-->name:', name, '-->grad_requirs:',parms.requires_grad, '-->grad_value:', parms.grad)
 
         # Clip Gradient
         nn.utils.clip_grad_norm_(encoder.parameters(),0.5)
         nn.utils.clip_grad_norm_(tcn.parameters(),0.5)
-        nn.utils.clip_grad_norm_(ap.parameters(),0.5)
-        nn.utils.clip_grad_norm_(rn.parameters(),0.5)
-        nn.utils.clip_grad_norm_(rn0.parameters(),0.5)
+        nn.utils.clip_grad_norm_(knnc.parameters(),0.5)
+        # nn.utils.clip_grad_norm_(rn.parameters(),0.5)
+        # nn.utils.clip_grad_norm_(rn0.parameters(),0.5)
 
         # Update Models
         encoder_optim.step()
         tcn_optim.step()
-        rn_optim.step()
-        rn0_optim.step()
-        ap_optim.step()
+        knnc_optim.step()
+        # rn_optim.step()
+        # rn0_optim.step()
 
         # Update "step" for scheduler
         encoder_scheduler.step()
         tcn_scheduler.step()
-        ap_scheduler.step()
-        rn_scheduler.step()
-        rn0_scheduler.step()
+        knnc_scheduler.step()
+        # rn_scheduler.step()
+        # rn0_scheduler.step()
 
         log, timestamp = time_tick("Loss & Step", timestamp)
         write_log("{} | ".format(log), end="")
-        write_log("Loss = {}".format(loss))
+        write_log("CTC Loss = {:.6} | ".format(ctc_loss_correct), end="")
+        write_log("MSE Loss = {:.6} | ".format(mse_loss))
         episode += 1
 
         # Validation Loop
@@ -275,9 +293,7 @@ def main():
             # Validation Mode
             encoder.eval()
             tcn.eval()
-            ap.eval()
-            rn.eval()
-            rn0.eval()
+            knnc.eval()
 
             with torch.no_grad():
                 accuracies = []
@@ -293,15 +309,13 @@ def main():
                         if DATASET == "haa":
                             the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "val", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
                         elif DATASET == "kinetics":
-                            the_dataset = dataset.KineticsDataset(DATA_FOLDER, "val", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                        elif DATASET == "full_kinetics":
-                            the_dataset = dataset.FullKineticsDataset(DATA_FOLDER, "val", (TRAIN_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                        sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM)
-                        batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True)
+                            the_dataset = dataset.KineticsDataset(KINETICS_DATA_FOLDERS, "val", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                        sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM, num_workers=0)
+                        batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True, num_workers=0)
                         samples, _ = sample_dataloader.__iter__().next()            # [query*class, clip, RGB, frame, H, W]
                         batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
                     except Exception:
-                        print("Skipped")
+                        print("Loading Skipped")
                         write_log("Data Loading Error")
                         continue
                     
@@ -319,51 +333,58 @@ def main():
                     # TCN Processing
                     samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
                     samples = tcn(samples)
-                    samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
-                    samples = samples.reshape(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [class*sample*window, clip, feature]
-                    # samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
-                    # samples = torch.mean(samples,1)              # [class, clip, feature]
+                    samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature(TCN)]
+                    samples = samples.reshape(-1, CLIP_NUM, TCN_OUT_CHANNEL)  # [class*sample*window, clip, feature(TCN)]
 
                     batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
                     batches = tcn(batches)
-                    batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-                    batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
+                    batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature(TCN)]
+                    batches = batches.reshape(-1, CLIP_NUM, TCN_OUT_CHANNEL)  # [query*class*window, clip, feature(TCN)]
 
-                    # Attention Pooling
-                    samples = ap(samples, batches)
-                    # samples_trans = torch.transpose(samples, 0, 1)    # [clip, class*sample*window, feature]
-                    # samples_trans = torch.transpose(samples_trans, 1, 2)    # [clip, feature, class*sample*window]
-                    # weight = torch.tensordot(batches, samples_trans, dims=2) # [query*class*window, class*sample*window]
-                    # weight = weight.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM).unsqueeze(1) # [query*class*window*class, 1, sample*window]
-                    # samples = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1).reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM, -1) # [query*class*window*class, sample*window, clip*feature]
-                    # samples = torch.bmm(weight, samples).squeeze(1).reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM, CLIP_NUM, TCN_OUT_CHANNEL)   # [query*class*window, class, clip, feature]
+                    # KNN
+                    samples = knnc(samples)  # [class*sample*window, feature(KNN)]
+                    batches = knnc(batches)  # [query*class*window, feature(KNN)]
+
+                    cluster_ids, cluster_centers = kmeans(X=samples, num_clusters=CLUSTER_NUM, distance='cosine', device=device) # [cluster, clip*feature]
+                    if cluster_ids is None:
+                        print("KNN Skipped")
+                        write_log("KNN Error")
+                        continue
+                    cluster_ids = (cluster_ids+1).reshape(CLASS_NUM, SAMPLE_NUM, WINDOW_NUM) # [class, support, window]
 
                     # Compute Relation
-                    batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)  # [class, query*class*window, clip, feature]
-                    batches_rn = torch.transpose(batches_rn,0,1)               # [query*class*window, class, clip, feature]
-                    relations = torch.cat((samples,batches_rn),2).reshape(-1,CLIP_NUM*2,TCN_OUT_CHANNEL)    # [query*class*window, class, clip*2(channel), feature]
-                    relations = rn(relations).reshape(QUERY_NUM*CLASS_NUM, WINDOW_NUM, CLASS_NUM)    # [query*class, window, class]
-                    
+                    batches_rn = batches.unsqueeze(1).repeat(1,CLUSTER_NUM,1).reshape(-1, KNN_IN_DIM) # [query*class*window*cluster, feature]
+                    cluster_centers_rn = cluster_centers.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM, 1, 1).reshape(-1, KNN_IN_DIM).to(device) # [query*class*window*cluster, feature]
+                    relations = cos(batches_rn, cluster_centers_rn).reshape(-1, WINDOW_NUM, CLUSTER_NUM) # [query*class, window, cluster]
+
                     # Compute Zero Probability
-                    samples_rn0 = samples.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM*CLIP_NUM, TCN_OUT_CHANNEL)  # [query*class*window, class*clip, feature]
-                    relations_rn0 = torch.cat((batches, samples_rn0), 1)   # [query*class*window, (class+1)*clip, feature]
-                    blank_prob = rn0(relations_rn0).reshape(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)  # [query*class, window, 1]
-                    # blank_prob = torch.full((QUERY_NUM*(CLASS_NUM+1), WINDOW_NUM, 1), 0.01).to(device)
+                    blank_prob = torch.full((QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1), 1e-08, layout=torch.strided, device=device, requires_grad=True) # [query*class, window, 1]
 
                     # Generate final probabilities
-                    relations = torch.cat((blank_prob, relations), 2)
-                    final_outcome = nn.functional.softmax(relations, 2)  # [query*class, window(length), class+1]
+                    relations = torch.cat((blank_prob, relations), 2)    # [query*class, window, cluster+1]
+                    final_outcome = nn.functional.softmax(relations, 2)  # [query*class, window, cluster+1]
+
+                    # Generate Target Labels
+                    target = cluster_ids.reshape(-1, WINDOW_NUM) # [class*support, window]
+                    # file = open("test.log", "a")
+                    # file.write("{}\n\n".format(str(target)))
+                    # file.close()
+                    target_lengths, target_mask = ctc_length_mask(target)
+                    target = target.reshape(-1) # [class*support*window]
+                    target = target[target_mask.reshape(-1)] # [SUM(target_lengths)]
 
                     # Predict
-                    # relations = relations.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM+1)
+                    # relations = relations.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM)
                     # _, predict_labels = torch.max(relations.data,1)
                     # batches_labels = batches_labels.unsqueeze(1).repeat(1,WINDOW_NUM).view(QUERY_NUM*CLASS_NUM*WINDOW_NUM).to(device)
-                    predict_labels = ctc_predict(final_outcome.cpu().numpy())
+                    predict_labels = ctc_alignment_predict(final_outcome, target, target_lengths, SAMPLE_NUM)
                     batches_labels = batches_labels.numpy()
+                    print(predict_labels)
+                    print(batches_labels)
 
                     # Counting Correct Ones #TODO use ctc as score
-                    rewards = [compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batches_labels)]
-                    # rewards = [1 if predict_labels[i] == batches_labels[i] else 0 for i in range(len(predict_labels))]
+                    # rewards = [compute_score(prediction, truth) for prediction, truth in zip(predict_labels, batches_labels)]
+                    rewards = [1 if predict_labels[i] == batches_labels[i] else 0 for i in range(len(predict_labels))]
                     total_rewards = np.sum(rewards)
 
                     # Record accuracy
@@ -394,29 +415,29 @@ def main():
                     write_log("Models Saved")
                 else:
                     folder_for_this_accuracy = os.path.join(output_folder, "Latest")
-                    write_log("")
+                write_log("")
 
                 if not os.path.exists(folder_for_this_accuracy):
                     os.mkdir(folder_for_this_accuracy)
 
                 # Save networks
                 torch.save(encoder.state_dict(), os.path.join(folder_for_this_accuracy, "encoder.pkl"))
-                torch.save(rn.state_dict(), os.path.join(folder_for_this_accuracy, "rn.pkl"))
+                # torch.save(rn.state_dict(), os.path.join(folder_for_this_accuracy, "rn.pkl"))
                 torch.save(tcn.state_dict(), os.path.join(folder_for_this_accuracy, "tcn.pkl"))
-                torch.save(rn0.state_dict(), os.path.join(folder_for_this_accuracy, "rn0.pkl"))
-                torch.save(ap.state_dict(), os.path.join(folder_for_this_accuracy, "ap.pkl"))
+                torch.save(knnc.state_dict(), os.path.join(folder_for_this_accuracy, "knnc.pkl"))
+                # torch.save(rn0.state_dict(), os.path.join(folder_for_this_accuracy, "rn0.pkl"))
 
                 torch.save(encoder_optim.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_optim.pkl"))
-                torch.save(rn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn_optim.pkl"))
+                # torch.save(rn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn_optim.pkl"))
                 torch.save(tcn_optim.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_optim.pkl"))
-                torch.save(rn0_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_optim.pkl"))
-                torch.save(ap_optim.state_dict(), os.path.join(folder_for_this_accuracy, "ap_optim.pkl"))
+                torch.save(knnc_optim.state_dict(), os.path.join(folder_for_this_accuracy, "knnc_optim.pkl"))
+                # torch.save(rn0_optim.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_optim.pkl")
 
                 torch.save(encoder_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "encoder_scheduler.pkl"))
-                torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
+                # torch.save(rn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn_scheduler.pkl"))
                 torch.save(tcn_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "tcn_scheduler.pkl"))
-                torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl"))
-                torch.save(ap_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "ap_scheduler.pkl"))
+                torch.save(knnc_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "knnc_scheduler.pkl"))
+                # torch.save(rn0_scheduler.state_dict(), os.path.join(folder_for_this_accuracy, "rn0_scheduler.pkl"))
 
                 os.system("cp ./config.py '" + folder_for_this_accuracy + "'")
                 os.system("cp ./log.txt '" + folder_for_this_accuracy + "'")

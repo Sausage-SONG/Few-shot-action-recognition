@@ -59,8 +59,7 @@ class RelationNetworkZero(nn.Module):
                         nn.BatchNorm1d(int(input_size/4), momentum=1, affine=True),
                         nn.ReLU(),
                         nn.MaxPool1d(2))
-        self.fc1 = nn.Linear(105, hidden_size) # 5way
-        # self.fc1 = nn.Linear(75, hidden_size) # 3way
+        self.fc1 = nn.Linear(105, hidden_size)
         self.fc2 = nn.Linear(hidden_size,1)
 
         # # Initialize itself
