@@ -5,6 +5,7 @@ from torch.autograd import Variable              #
 
 import numpy as np                               #  Numpy
 import os                                        #  OS
+import random                                    #  Random
 
 from relationNet import RelationNetwork as RN       #  Relation Net
 from relationNet import RelationNetworkZero as RN0  #
@@ -86,27 +87,27 @@ def main():
         rn0.load_state_dict(torch.load(RN0_MODEL))
         write_log("RN0 Loaded")
     
-    # if os.path.exists(ENCODER_OPTIM):
-    #     encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
-    # if os.path.exists(RN_OPTIM):
-    #     rn_optim.load_state_dict(torch.load(RN_OPTIM))
-    # if os.path.exists(TCN_OPTIM):
-    #     tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
-    # if os.path.exists(RN0_OPTIM):
-    #     rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
-    # if os.path.exists(AP_OPTIM):
-    #     ap_optim.load_state_dict(torch.load(AP_OPTIM))
+    if os.path.exists(ENCODER_OPTIM):
+        encoder_optim.load_state_dict(torch.load(ENCODER_OPTIM))
+    if os.path.exists(RN_OPTIM):
+        rn_optim.load_state_dict(torch.load(RN_OPTIM))
+    if os.path.exists(TCN_OPTIM):
+        tcn_optim.load_state_dict(torch.load(TCN_OPTIM))
+    if os.path.exists(RN0_OPTIM):
+        rn0_optim.load_state_dict(torch.load(RN0_OPTIM))
+    if os.path.exists(AP_OPTIM):
+        ap_optim.load_state_dict(torch.load(AP_OPTIM))
     
-    # if os.path.exists(ENCODER_SCHEDULER):
-    #     encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
-    # if os.path.exists(RN_SCHEDULER):
-    #     rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
-    # if os.path.exists(TCN_SCHEDULER):
-    #     tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
-    # if os.path.exists(RN0_SCHEDULER):
-    #     rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
-    # if os.path.exists(AP_SCHEDULER):
-    #     ap_scheduler.load_state_dict(torch.load(AP_SCHEDULER))
+    if os.path.exists(ENCODER_SCHEDULER):
+        encoder_scheduler.load_state_dict(torch.load(ENCODER_SCHEDULER))
+    if os.path.exists(RN_SCHEDULER):
+        rn_scheduler.load_state_dict(torch.load(RN_SCHEDULER))
+    if os.path.exists(TCN_SCHEDULER):
+        tcn_scheduler.load_state_dict(torch.load(TCN_SCHEDULER))
+    if os.path.exists(RN0_SCHEDULER):
+        rn0_scheduler.load_state_dict(torch.load(RN0_SCHEDULER))
+    if os.path.exists(AP_SCHEDULER):
+        ap_scheduler.load_state_dict(torch.load(AP_SCHEDULER))
 
     max_accuracy = MAX_ACCURACY     # Currently the best accuracy
     accuracy_history = []           # Only for logging
@@ -141,63 +142,63 @@ def main():
         write_log("Training Episode {} | ".format(episode), end="")
         timestamp = time_tick("Restart")
 
-        # Setup Data
-        try:
-            if DATASET == "haa":
-                the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "train", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-            elif DATASET == "kinetics":
-                the_dataset = dataset.KineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-            elif DATASET == "full_kinetics":
-                the_dataset = dataset.FullKineticsDataset(DATA_FOLDER, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-            sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM)
-            batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True)
-            samples, _ = sample_dataloader.__iter__().next()             # [support*class, window*clip, RGB, frame, H, W]
-            batches, batches_labels = batch_dataloader.__iter__().next()   # [query*(class+1), window*clip, RGB, frame, H, W]
-        except Exception:
-            skipped += 1
-            print("Skipped")
-            write_log("Data Loading Error | Total Error = {}".format(skipped))
-            continue
+        # Load Data
+        if episode % TRAIN_FREQUENCY == 0:
+            try:
+                the_dataset = dataset.StandardDataset(DATA_FOLDERS, "train", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM+QUERY_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                dataloader = dataset.get_data_loader(the_dataset, num_per_class=SAMPLE_NUM+QUERY_NUM, num_workers=0)
+                data, data_labels = dataloader.__iter__().next()     # [class*(support+query), window*clip, RGB, frame, H, W]
+            except Exception:
+                skipped += 1
+                print("Skipped")
+                write_log("Data Loading Error | Total Error = {}".format(skipped))
+                continue
+            data = data.view(-1, 3, FRAME_NUM, 128, 128)
         
+        # Generate support & query split
+        query_index = []
+        support_index = []
+        for i in range(CLASS_NUM):
+            start = (SAMPLE_NUM+QUERY_NUM) * i
+            end = (SAMPLE_NUM+QUERY_NUM) * (i+1)
+            index = list(range(start, end))
+            q = random.sample(index, QUERY_NUM)
+            s = list(set(index)-set(q))
+            query_index.extend(q)
+            support_index.extend(s)
+        query_index = torch.tensor(query_index)
+        support_index = torch.tensor(support_index)
+
         log, timestamp = time_tick("Data Loading", timestamp)
         write_log("{} | ".format(log), end="")
 
         # Encoding
-        samples = samples.view(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
-        samples = encoder(Variable(samples).to(device))
-        samples = samples.view(CLASS_NUM*SAMPLE_NUM, WINDOW_NUM*CLIP_NUM, -1)    # [support*class, window*clip, feature]
-
-        batches = batches.view(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLIP_NUM, 3, FRAME_NUM, 128, 128)
-        batches = encoder(Variable(batches).to(device))
-        batches = batches.view(CLASS_NUM*QUERY_NUM, WINDOW_NUM*CLIP_NUM,-1)       # [query*class, window*clip, feature]
+        embed = encoder(Variable(data).to(device))
+        embed = embed.view(CLASS_NUM*(SAMPLE_NUM+QUERY_NUM), WINDOW_NUM*CLIP_NUM, -1)  # [class*(support+query), window*clip, feature]
 
         log, timestamp = time_tick("Encoding", timestamp)
         write_log("{} | ".format(log), end="")
 
         # TCN Processing
-        samples = torch.transpose(samples,1,2)       # [support*class, feature(channel), window*clip(length)]
-        samples = tcn(samples)
-        samples = torch.transpose(samples,1,2)       # [support*class, window*clip, feature]
-        samples = samples.reshape(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [class*sample*window, clip, feature]
-        # samples, _ = torch.max(samples, 2)           # [class, sample, clip, feature]
-        # samples = torch.mean(samples,1)              # [class, clip, feature]
-
-        batches = torch.transpose(batches,1,2)       # [query*class, feature(channel), window*clip(length)]
-        batches = tcn(batches)
-        batches = torch.transpose(batches,1,2)       # [query*class, window*clip, feature]
-        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
+        embed = torch.transpose(embed, 1, 2)           # [class*(support+query), feature(channel), window*clip(length)]
+        embed = tcn(embed)
+        embed = torch.transpose(embed, 1, 2)           # [class*(support+query), window*clip, feature]
 
         log, timestamp = time_tick("TCN", timestamp)
         write_log("{} | ".format(log), end="")
 
+        # Split data into support & query
+        samples = embed[support_index] # [class*support, window*clip, feature]
+        batches = embed[query_index]   # [class*query, window*clip, feature]
+        batches_labels = data_labels[query_index]
+
         # Attention Pooling
+        samples = samples.reshape(CLASS_NUM*SAMPLE_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [class*sample*window, clip, feature]
+        batches = batches.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM, CLIP_NUM, -1)  # [query*class*window, clip, feature]
         samples = ap(samples, batches)                    # [query*class*window, class, clip, feature]
-        # samples_trans = torch.transpose(samples, 0, 1)    # [clip, class*sample*window, feature]
-        # samples_trans = torch.transpose(samples_trans, 1, 2)    # [clip, feature, class*sample*window]
-        # weight = torch.tensordot(batches, samples_trans, dims=2) # [query*class*window, class*sample*window]
-        # weight = weight.reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM).unsqueeze(1) # [query*class*window*class, 1, sample*window]
-        # samples = samples.unsqueeze(0).repeat(QUERY_NUM*CLASS_NUM*WINDOW_NUM,1,1,1).reshape(CLASS_NUM*QUERY_NUM*WINDOW_NUM*CLASS_NUM, SAMPLE_NUM*WINDOW_NUM, -1) # [query*class*window*class, sample*window, clip*feature]
-        # samples = torch.bmm(weight, samples).squeeze(1).reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM, CLIP_NUM, TCN_OUT_CHANNEL)   # [query*class*window, class, clip, feature]
+
+        log, timestamp = time_tick("AP", timestamp)
+        write_log("{} | ".format(log), end="")
 
         # Compute Relation
         batches_rn = batches.unsqueeze(0).repeat(CLASS_NUM,1,1,1)  # [class, query*class*window, clip, feature]
@@ -209,7 +210,6 @@ def main():
         samples_rn0 = samples.reshape(QUERY_NUM*CLASS_NUM*WINDOW_NUM, CLASS_NUM*CLIP_NUM, TCN_OUT_CHANNEL)  # [query*class*window, class*clip, feature]
         relations_rn0 = torch.cat((batches, samples_rn0), 1)   # [query*class*window, (class+1)*clip, feature]
         blank_prob = rn0(relations_rn0).reshape(QUERY_NUM*CLASS_NUM, WINDOW_NUM, 1)  # [query*class, window, 1]
-        # blank_prob = Variable(torch.full((QUERY_NUM*(CLASS_NUM+1), WINDOW_NUM, 1), 0.01)).to(device)
 
         log, timestamp = time_tick("Relation", timestamp)
         write_log("{} | ".format(log), end="")
@@ -225,14 +225,6 @@ def main():
         # loss = mse(relations, one_hot_labels)
         loss = ctc(final_outcome, batches_labels, input_lengths, target_lengths)
         print("Loss = {}".format(loss))
-
-        # if torch.isnan(loss):
-        #     write_error("Error @ Training {} <Loss is NaN>".format(episode))
-        #     write_error("<final_outcome>\n"+str(final_outcome))
-        #     write_error("<rn0>\n"+str(rn0.state_dict()))
-        #     write_error("<rn>\n"+str(rn.state_dict()))
-        #     write_error("<encoder>\n"+str(encoder.state_dict()))
-        #     write_error("")
 
         # Back Propagation
         encoder.zero_grad()
@@ -290,14 +282,9 @@ def main():
 
                     # Data Loading
                     try:
-                        if DATASET == "haa":
-                            the_dataset = dataset.HAADataset(DATA_FOLDERS, None, "val", CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                        elif DATASET == "kinetics":
-                            the_dataset = dataset.KineticsDataset(DATA_FOLDER, "val", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                        elif DATASET == "full_kinetics":
-                            the_dataset = dataset.FullKineticsDataset(DATA_FOLDER, "val", (TRAIN_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
-                        sample_dataloader = dataset.get_data_loader(the_dataset, True, num_per_class=SAMPLE_NUM)
-                        batch_dataloader = dataset.get_data_loader(the_dataset, False, num_per_class=QUERY_NUM,shuffle=True)
+                        the_dataset = dataset.StandardDataset(DATA_FOLDERS, "val", (TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT), CLASS_NUM, SAMPLE_NUM, INST_NUM, FRAME_NUM, CLIP_NUM, WINDOW_NUM)
+                        sample_dataloader = dataset.get_data_loader(the_dataset, num_per_class=SAMPLE_NUM, num_workers=0)
+                        batch_dataloader = dataset.get_data_loader(the_dataset, num_per_class=QUERY_NUM,shuffle=True, num_workers=0)
                         samples, _ = sample_dataloader.__iter__().next()            # [query*class, clip, RGB, frame, H, W]
                         batches, batches_labels = batch_dataloader.__iter__().next()   # [query*class, window*clip, RGB, frame, H, W]
                     except Exception:

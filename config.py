@@ -3,41 +3,43 @@ import os
 # Constant (Settings)
 TCN_OUT_CHANNEL = 64                        # Num of channels of output of TCN
 RELATION_DIM = 32                           # Dim of one layer of relation net
-CLASS_NUM = 5                               # <X>-way  | Num of classes
+CLASS_NUM = 3                               # <X>-way  | Num of classes
 SAMPLE_NUM = 5                              # <Y>-shot | Num of supports per class
-QUERY_NUM = 3                               # Num of instances for query per class
-TRAIN_EPISODE = 30000                       # Num of training episode 
+QUERY_NUM = 5                               # Num of instances for query per class
+TRAIN_EPISODE = 30000                       # Num of training episode
+TRAIN_FREQUENCY = 3                         # One data loading every <X> episode
 VALIDATION_EPISODE = 50                     # Num of validation episode
 VALIDATION_FREQUENCY = 200                  # After each <X> training episodes, do validation once
 LEARNING_RATE = 0.0001                      # Initial learning rate
 FRAME_NUM = 10                              # Num of frames per clip
 CLIP_NUM = 5                                # Num of clips per window
 WINDOW_NUM = 3                              # Num of processing window per video
-INST_NUM = 10                               # Num of videos selected in each class
-GPU = "4,5,6,7,8"                               # Index of GPU to be used
-EXP_NAME = "(100)CTC_Blank_MOT_Kinetics400_Attention_v2_5W5S"                # Name of this experiment
+INST_NUM = 15                               # Num of videos selected in each class
+GPU = "4,5,6,7"                             # Index of GPU to be used
+EXP_NAME = "CTC_Full_HAA_Attention_v2_5S"                # Name of this experiment
 
 # Dataset
 ##################################################################################################################
-DATASET = "kinetics"             # "kinetics" or "haa" or "full_kinetics"
+DATASET = "haa"             # "kinetics" or "haa"
 
-DATA_FOLDER = "/data/ssongad/kinetics400/new_mot_normalized_frame/train"           # 
-TRAIN_SPLIT = "splits/train.txt"                  # For Kinetics dataset only
-VAL_SPLIT = "splits/val.txt"
-TEST_SPLIT = "splits/test.txt"                    #
+TRAIN_SPLIT = "/data/ssongad/haa/train.txt"                
+VAL_SPLIT = "/data/ssongad/haa/train.txt"
+TEST_SPLIT = "/data/ssongad/haa/test.txt"                    
 
-DATA_FOLDERS = ["/data/ssongad/haa/new_normalized_frame/",        # For HAA dataset only
-                "/data/ssongad/haa/normalized_frame_scale2",      # Order => [original (1x), 2x, 3x]
-                "/data/ssongad/haa/normalized_frame_scale3"]      # If a certain speed is missing, just put the path of 1x there
-                                                                  # Don't leave an invalid path, including blank strings
+KINETICS_DATA_FOLDERS = ["/data/ssongad/kinetics400/frame/train",
+                         "/data/ssongad/kinetics400/frame/test"]
+
+HAA_DATA_FOLDERS = ["/data/jchungaa/haa/frame/train",        
+                    "/data/jchungaa/haa/frame/test",      
+                    "/data/jchungaa/haa/frame/val"]      
 ##################################################################################################################
 
 # Saved Models & Optimizers & Schedulers
 ##################################################################################################################
-MAX_ACCURACY = 0.6759999999999999            # Accuracy of the loaded model
+MAX_ACCURACY = 0.6173333333333334            # Accuracy of the loaded model
                                              # Leave 0 if N/A
 
-CHECKPOINT = "/data/ssongad/codes/ctc_ap_v2/models/(100)CTC_Blank_MOT_Kinetics400_Attention_v2_5W5S/0.6759999999999999"             # Path of a folder, if you put everything in this folder with their DEFAULT names
+CHECKPOINT = "/data/ssongad/codes/ctc_ap_v2/models/CTC_Full_HAA_Attention_v2_5S/Latest"             # Path of a folder, if you put everything in this folder with their DEFAULT names
                             # If you have such a path, paths below are not necessary then
                             # Leave a blank string if N/A
 
@@ -108,4 +110,9 @@ def read_split(file_path):
 TRAIN_SPLIT = read_split(TRAIN_SPLIT)
 VAL_SPLIT = read_split(VAL_SPLIT)
 TEST_SPLIT = read_split(TEST_SPLIT)
+
+if DATASET == "haa":
+    DATA_FOLDERS = HAA_DATA_FOLDERS
+elif DATASET == "kinetics":
+    DATA_FOLDERS = KINETICS_DATA_FOLDERS
 ##################################################################################################################
