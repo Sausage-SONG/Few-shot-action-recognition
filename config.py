@@ -10,36 +10,38 @@ TRAIN_EPISODE = 30000                       # Num of training episode
 TRAIN_FREQUENCY = 3                         # One data loading every <X> episode
 VALIDATION_EPISODE = 50                     # Num of validation episode
 VALIDATION_FREQUENCY = 200                  # After each <X> training episodes, do validation once
-LEARNING_RATE = 0.0001                      # Initial learning rate
+LEARNING_RATE = 0.0005                       # Initial learning rate
 FRAME_NUM = 10                              # Num of frames per clip
 CLIP_NUM = 5                                # Num of clips per window
 WINDOW_NUM = 3                              # Num of processing window per video
 INST_NUM = 15                               # Num of videos selected in each class
-GPU = "4,5,6,7"                             # Index of GPU to be used
-EXP_NAME = "CTC_Full_HAA_Attention_v2_5S"                # Name of this experiment
+GPU = "4,5,6,7"                               # Index of GPU to be used
+EXP_NAME = "CTC+MSE_Full_Finegym_NewRN_3W5S"    # Name of this experiment
+LOG_NAME = EXP_NAME+'.txt'
 
 # Dataset
 ##################################################################################################################
-DATASET = "haa"             # "kinetics" or "haa"
+DATASET = "finegym"             # "haa" or "mit" or "finegym"
 
-TRAIN_SPLIT = "/data/ssongad/haa/train.txt"                
-VAL_SPLIT = "/data/ssongad/haa/train.txt"
-TEST_SPLIT = "/data/ssongad/haa/test.txt"                    
+TRAIN_SPLIT = "/data/ssongad/finegym/train.txt"
+VAL_SPLIT = "/data/ssongad/finegym/train.txt"
+TEST_SPLIT = "/data/ssongad/finegym/test.txt"
 
-KINETICS_DATA_FOLDERS = ["/data/ssongad/kinetics400/frame/train",
-                         "/data/ssongad/kinetics400/frame/test"]
+HAA_DATA_FOLDERS = ["/data/ssongad/haa/frame/train",
+                    "/data/ssongad/haa/frame/val"]
 
-HAA_DATA_FOLDERS = ["/data/jchungaa/haa/frame/train",        
-                    "/data/jchungaa/haa/frame/test",      
-                    "/data/jchungaa/haa/frame/val"]      
+MIT_DATA_FOLDERS = ["/data/ssongad/mit2/mot_normalized_frame/train",
+                    "/data/ssongad/mit2/mot_normalized_frame/val"]
+
+FINEGYM_DATA_FOLDER = "/data/ssongad/finegym/frame"
 ##################################################################################################################
 
 # Saved Models & Optimizers & Schedulers
 ##################################################################################################################
-MAX_ACCURACY = 0.6173333333333334            # Accuracy of the loaded model
+MAX_ACCURACY = 0.304            # Accuracy of the loaded model
                                              # Leave 0 if N/A
 
-CHECKPOINT = "/data/ssongad/codes/ctc_ap_v2/models/CTC_Full_HAA_Attention_v2_5S/Latest"             # Path of a folder, if you put everything in this folder with their DEFAULT names
+CHECKPOINT = "/data/ssongad/codes/new_rn/models/CTC+MSE_Full_Finegym_NewRN_3W5S/0.304"             # Path of a folder, if you put everything in this folder with their DEFAULT names
                             # If you have such a path, paths below are not necessary then
                             # Leave a blank string if N/A
 
@@ -113,6 +115,26 @@ TEST_SPLIT = read_split(TEST_SPLIT)
 
 if DATASET == "haa":
     DATA_FOLDERS = HAA_DATA_FOLDERS
-elif DATASET == "kinetics":
-    DATA_FOLDERS = KINETICS_DATA_FOLDERS
+elif DATASET == "finegym":
+    DATA_FOLDERS = FINEGYM_DATA_FOLDER
+elif DATASET == "mit":
+    DATA_FOLDERS = MIT_DATA_FOLDERS
 ##################################################################################################################
+INFO_DICT = ["/data/ssongad/finegym/gym288_train_element_v1.1.txt", "/data/ssongad/finegym/gym288_val_element.txt"]
+d = dict()
+for path in INFO_DICT:
+    file = open(path, 'r')
+    lines = file.readlines()
+    file.close()
+
+    for line in lines:
+        line = line.strip()
+        line = line.split(" ")
+        label = line[1]
+        name = line[0]
+
+        if label in d.keys():
+            d[label].append(name)
+        else:
+            d[label] = [name]
+INFO_DICT = d

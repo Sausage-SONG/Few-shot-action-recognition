@@ -18,8 +18,8 @@ WIDTH = HEIGHT = 128
 prob_50 = lambda aug: va.Sometimes(0.5, aug) # Used to apply augmentor with 50% probability
 prob_20 = lambda aug: va.Sometimes(0.2, aug) # Used to apply augmentor with 20% probability
 aug_seq = va.Sequential([
-    prob_20(va.OneOf([va.GaussianBlur(2), 
-                      va.InvertColor()])),
+    # prob_20(va.OneOf([va.GaussianBlur(2), 
+    #                   va.InvertColor()])),
     prob_50(va.HorizontalFlip())
 ])
 def use_aug_seq(frames):
@@ -73,11 +73,6 @@ class HAADataset(Dataset):
                 self.video_folders.append(os.path.join(class_folders[random_stretch], video_name))
 
                 self.video_labels.append(label)
-    
-    def __str__(self):
-        output = ""
-        output += "Task -> mode={}; {}-way {}-shot\n".format(self.mode, self.class_num, self.video_num)
-        return output
     
     def print_dataset(self):
         for i in range(len(self)):
@@ -143,13 +138,12 @@ class HAADataset(Dataset):
         return frames, video_label
 
 class StandardDataset(Dataset):
-    def __init__(self, data_folders, mode, splits, class_num, video_num, inst_num, frame_num, clip_num, window_num):
+    def __init__(self, data_folders, mode, splits, class_num, inst_num, frame_num, clip_num, window_num):
         self.mode = mode
         assert mode in ["train", "val", "test"]
 
         # Attribute
         self.class_num = class_num
-        self.video_num = video_num
         self.inst_num = inst_num
         self.frame_num = frame_num
         self.clip_num = clip_num
@@ -238,10 +232,10 @@ class StandardDataset(Dataset):
                 img = cv2.imread(frame)
                 img = cv2.resize(img, (WIDTH, HEIGHT))   
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                # Rotate
-                if self.mode == "train" and random.randint(0,1):
-                    angle = random.randint(-25,25)
-                    img = rotate_img(img, angle, reshape=False)
+                # # Rotate
+                # if self.mode == "train" and random.randint(0,1):
+                #     angle = random.randint(-25,25)
+                #     img = rotate_img(img, angle, reshape=False)
                 processed_frames[idx] = img
         if self.mode == 'train':
             processed_frames = use_aug_seq(processed_frames)
@@ -360,6 +354,105 @@ class AVADataset(Dataset):
 
         return frames, video_label, video_folder
 
+class FinegymDataset(Dataset):
+    def __init__(self, data_folder, info_dict, mode, splits, class_num, inst_num, frame_num, clip_num, window_num):
+        self.mode = mode
+        assert mode in ['train', 'val', 'test']
+        
+        # Attribute
+        self.class_num = class_num
+        self.inst_num = inst_num
+        self.frame_num = frame_num
+        self.clip_num = clip_num
+        self.window_num = window_num
+        self.data_folder = data_folder
+
+        # Mode & Split
+        if self.mode == "train":
+            all_class_names = splits[0]
+        elif self.mode == "val":
+            all_class_names = splits[1]
+        else:
+            all_class_names = splits[2]
+        while True:
+            self.class_names = random.sample(all_class_names, class_num)
+            done = True
+            for class_name in self.class_names:
+                if len(info_dict[class_name]) < inst_num:
+                    done = False
+            if done:
+                break
+
+        self.labels = dict()
+        for i, class_name in enumerate(self.class_names):
+            self.labels[class_name] = i+1
+        
+        self.video_folders = []
+        self.video_labels = []
+        for class_name in self.class_names:
+            label = self.labels[class_name]
+            video_folders = info_dict[class_name]
+            video_folders = [os.path.join(data_folder, vid) for vid in video_folders]
+            sample_folders = []
+            for video_folder in video_folders:
+                if os.path.exists(video_folder) and len(os.listdir(video_folder)) >= frame_num:
+                    sample_folders.append(video_folder)
+            sample_folders = random.sample(sample_folders, inst_num)
+
+            self.video_folders.extend(sample_folders)
+            self.video_labels.extend([label] * inst_num)
+    
+    def __len__(self):
+        return len(self.video_folders)
+    
+    def __getitem__(self, idx):
+        video_folder = self.video_folders[idx]
+        video_label = self.video_labels[idx]
+
+        all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
+        all_frames.sort()
+
+        length = len(all_frames)
+        stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
+        
+        selected_frames = []
+        for i in range(self.clip_num*self.window_num):
+            selected_frames.extend(list(range(i*stride, i*stride+self.frame_num)))
+        for i in range(len(selected_frames)):
+            if selected_frames[i] >= length:
+                selected_frames[i] = length - 1
+        
+        # Process frames
+        processed_frames = [None] * length
+        for idx in selected_frames:
+            if processed_frames[idx] is None:
+                frame = all_frames[idx]
+                img = cv2.imread(frame)
+                img = cv2.resize(img, (WIDTH, HEIGHT))   
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                # # Rotate
+                # if self.mode == "train" and random.randint(0,1):
+                #     angle = random.randint(-25,25)
+                #     img = rotate_img(img, angle, reshape=False)
+                processed_frames[idx] = img
+        if self.mode == 'train':
+            processed_frames = use_aug_seq(processed_frames)
+
+        frames = []
+        for i, frame_idx in enumerate(selected_frames):
+            j = i % self.frame_num
+            if j == 0:
+                frames.append([])
+            
+            frame = processed_frames[frame_idx].copy()
+            frames[-1].append(frame)
+        
+        frames = np.array(frames) / 127.5 - 1              # -1 to 1 # [num_frame, h, w, channel]
+        frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [window*clip, RGB, frame_num, H, W]
+        frames = torch.Tensor(frames.copy())
+
+        return frames, video_label       
+
 class ClassBalancedSampler(Sampler):
 
     def __init__(self, num_per_class, class_num, inst_num, shuffle):
@@ -371,7 +464,7 @@ class ClassBalancedSampler(Sampler):
     def __iter__(self):
         # return a single list of indices, assuming that items will be grouped by class
         batch = []
-        for j in range(self.class_num + 1):
+        for j in range(self.class_num):
             sublist = []
             for i in range(self.inst_num):
                 sublist.append(i+j*self.inst_num)
