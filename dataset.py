@@ -172,6 +172,11 @@ class StandardDataset(Dataset):
 
             for data_folder in self.data_folders:
                 class_folder = os.path.join(data_folder, class_name)
+<<<<<<< HEAD
+                if not os.path.exists(class_folder):
+                    continue
+=======
+>>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
                 video_names = os.listdir(class_folder) if os.path.exists(class_folder) else []
 
                 for video_name in video_names:
@@ -185,6 +190,36 @@ class StandardDataset(Dataset):
 
             self.video_folders.extend(video_folders)
             self.video_labels.extend(video_labels)
+<<<<<<< HEAD
+
+        # self.scales = []
+        # for i in range(len(self.video_folders)):
+        #     self.scales.append(random.randint(2,4))
+
+    def __len__(self):
+        return len(self.video_folders)
+    
+    def print_dataset(self):
+        string = ""
+        for i in range(len(self)):
+            string += "[{}] {} {} {}\n".format(i, self.video_labels[i], self.video_folders[i], self.scales[i])
+        
+        return string
+    
+    def get_labels(self):
+        if self.mode == "test":
+            return self.labels
+        return None
+
+    def __getitem__(self, idx):
+        video_folder = self.video_folders[idx]
+        video_label = self.video_labels[idx]
+        # scale = self.scales[idx]
+
+        all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
+        all_frames.sort()
+        # all_frames = all_frames[::scale]
+=======
 
         self.scales = []
         for i in range(len(self.video_folders)):
@@ -213,6 +248,7 @@ class StandardDataset(Dataset):
         all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
         all_frames.sort()
         all_frames = all_frames[::scale]
+>>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 
         length = len(all_frames)
         stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
@@ -452,6 +488,131 @@ class FinegymDataset(Dataset):
         frames = torch.Tensor(frames.copy())
 
         return frames, video_label       
+<<<<<<< HEAD
+
+class DoubleStandardDataset(Dataset):
+    def find_same_video(self, folders, class_name, video_name):
+        for folder in folders:
+            class_path = os.path.join(folder, class_name)
+            video_path = os.path.join(class_path, video_name)
+            if os.path.exists(video_path):
+                return video_path
+        return None
+
+    def __init__(self, h_data_folders, n_data_folders, mode, splits, class_num, inst_num, frame_num, clip_num, window_num):
+        self.mode = mode
+        assert mode in ["train", "val", "test"]
+
+        # Attribute
+        self.class_num = class_num
+        self.inst_num = inst_num
+        self.frame_num = frame_num
+        self.clip_num = clip_num
+        self.window_num = window_num
+
+        # Mode & Split
+        if self.mode == "train":
+            all_class_names = splits[0]
+        elif self.mode == "val":
+            all_class_names = splits[1]
+        else:
+            all_class_names = splits[2]
+        self.class_names = random.sample(all_class_names, class_num)
+
+        self.labels = dict()
+        for i, class_name in enumerate(self.class_names):
+            self.labels[class_name] = i+1
+
+        # Find all videos
+        self.video_folders = []
+        self.video_labels = []
+        for class_name in self.class_names:
+            video_folders = []
+            label = self.labels[class_name]
+
+            for data_folder in n_data_folders:
+                class_folder = os.path.join(data_folder, class_name)
+                if not os.path.exists(class_folder):
+                    continue
+                video_names = os.listdir(class_folder) if os.path.exists(class_folder) else []
+
+                for video_name in video_names:
+                    video_path = os.path.join(class_folder, video_name)
+                    if len(os.listdir(video_path)) >= self.frame_num:
+                        same_in_h = self.find_same_video(h_data_folders, class_name, video_name)
+                        if same_in_h is not None:
+                            video_folders.append([video_path, same_in_h])
+
+            # Pick <self.inst_num> random videos
+            video_folders = random.sample(video_folders, inst_num)
+            video_labels = [label] * inst_num
+
+            self.video_folders.extend(video_folders)
+            self.video_labels.extend(video_labels)
+
+        # self.scales = []
+        # for i in range(len(self.video_folders)):
+        #     self.scales.append(random.randint(2,4))
+
+    def __len__(self):
+        return len(self.video_folders)
+
+    def __getitem__(self, idx):
+        video_folders = self.video_folders[idx]
+        video_label = self.video_labels[idx]
+        result = []
+        
+        for video_folder in video_folders:
+
+            all_frames = [os.path.join(video_folder, frame_name) for frame_name in os.listdir(video_folder)]
+            all_frames.sort()
+            # all_frames = all_frames[::scale]
+
+            length = len(all_frames)
+            stride = round((length - self.frame_num)/(self.clip_num*self.window_num-1))
+            
+            selected_frames = []
+            for i in range(self.clip_num*self.window_num):
+                selected_frames.extend(list(range(i*stride, i*stride+self.frame_num)))
+            for i in range(len(selected_frames)):
+                if selected_frames[i] >= length:
+                    selected_frames[i] = length - 1
+            
+            # Process frames
+            processed_frames = [None] * length
+            for idx in selected_frames:
+                if processed_frames[idx] is None:
+                    frame = all_frames[idx]
+                    img = cv2.imread(frame)
+                    img = cv2.resize(img, (WIDTH, HEIGHT))   
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    # # Rotate
+                    # if self.mode == "train" and random.randint(0,1):
+                    #     angle = random.randint(-25,25)
+                    #     img = rotate_img(img, angle, reshape=False)
+                    processed_frames[idx] = img
+            if self.mode == 'train':
+                processed_frames = use_aug_seq(processed_frames)
+
+            frames = []
+            for i, frame_idx in enumerate(selected_frames):
+                j = i % self.frame_num
+                if j == 0:
+                    frames.append([])
+                
+                frame = processed_frames[frame_idx].copy()
+                frames[-1].append(frame)
+            
+            frames = np.array(frames) / 127.5 - 1              # -1 to 1 # [num_frame, h, w, channel]
+            frames = np.transpose(frames, (0, 4, 1, 2, 3))     # [window*clip, RGB, frame_num, H, W]
+
+            result.append(frames)
+        
+        result = torch.Tensor(result.copy())
+
+        return result, video_label
+=======
+>>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 
 class ClassBalancedSampler(Sampler):
 

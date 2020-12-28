@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import os
 
+<<<<<<< HEAD
+=======
 def print_stage(name, length=65, character="-"):
     Llength = int((length - len(name)) / 2)
     Rlength = length - Llength - len(name)
@@ -16,6 +18,7 @@ def print_debug(content, character="*"):
     print("{}{}{}".format(character, content, character))
     print(character*length)
 
+>>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 import scipy.stats
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0*np.array(data)
@@ -39,6 +42,8 @@ def compute_score(prediction, truth):
 # def compute_score(prediction, truth):
 #     return np.count_nonzero(prediction == truth) / len(prediction)
 
+<<<<<<< HEAD
+=======
 def write_log(content, end="\n", log_name='./log.txt'):
     file = open(log_name, "a")
     file.write(content+end)
@@ -59,6 +64,7 @@ def time_tick(name, t0=None):
     
     return content, t1
 
+>>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 from torch.nn.init import kaiming_normal_
 def weights_init(m):
     try:
