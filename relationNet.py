@@ -1,7 +1,6 @@
 # Public Packages
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 import math
 
 def weights_init(m):
@@ -80,7 +79,6 @@ class MultiRelationNetwork(nn.Module):
     def __init__(self, input_size, hidden_size, main_fc_dim, feature_dim):
         super(MultiRelationNetwork, self).__init__()
 
-<<<<<<< HEAD
         # # FC
         # self.main_fc = nn.Sequential(
         #                 nn.Linear(main_fc_dim*2, main_fc_dim),
@@ -89,13 +87,6 @@ class MultiRelationNetwork(nn.Module):
 
         # # Window-wise Inner Product
         # self.ip_layer = 
-=======
-        # FC
-        self.main_fc = nn.Sequential(
-                        nn.Linear(main_fc_dim*2, main_fc_dim),
-                        nn.ReLU(),
-                        nn.Linear(main_fc_dim, 1))
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 
         # Clip-wise
         self.cw_layer = nn.Sequential(
@@ -127,13 +118,8 @@ class MultiRelationNetwork(nn.Module):
         self.weights_init()
     
     def weights_init(self):
-<<<<<<< HEAD
         # nn.init.kaiming_normal_(self.main_fc[0].weight)
         # nn.init.kaiming_normal_(self.main_fc[2].weight)
-=======
-        nn.init.kaiming_normal_(self.main_fc[0].weight)
-        nn.init.kaiming_normal_(self.main_fc[2].weight)
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 
         nn.init.kaiming_normal_(self.cw_layer[0].weight)
         nn.init.kaiming_normal_(self.cw_layer[3].weight)
@@ -154,7 +140,6 @@ class MultiRelationNetwork(nn.Module):
         Q_num, W, CL, C, FE = support.shape # class*query, window, clip, class, feature
 
         # # FC
-<<<<<<< HEAD
         # support_fc = support.permute(0,3,1,2,4).reshape(Q_num*C, W, CL*FE)         # [class*query*class, window, clip*feature]
         # query_fc = query.unsqueeze(1).repeat(1,C,1,1,1).reshape(Q_num*C, W, CL*FE) # [class*query*class, window, clip*feature]
         # fc_cat = torch.cat((support_fc, query_fc), 2)                              # [class*query*class, window, clip*feature*2]
@@ -170,14 +155,6 @@ class MultiRelationNetwork(nn.Module):
         return None
         ip_scores = ip_scores.reshape(C, Q_num, W).permute(1,2,0)       # [class*query, window, class]
         ip_scores = F.softmax(ip_scores, dim=2)                         # [class*query, window, class]
-=======
-        support_fc = support.permute(0,3,1,2,4).reshape(Q_num*C, W, CL*FE)         # [class*query*class, window, clip*feature]
-        query_fc = query.unsqueeze(1).repeat(1,C,1,1,1).reshape(Q_num*C, W, CL*FE) # [class*query*class, window, clip*feature]
-        fc_cat = torch.cat((support_fc, query_fc), 2)                              # [class*query*class, window, clip*feature*2]
-        fc_scores = F.sigmoid(self.main_fc(fc_cat).reshape(Q_num, C, W))           # [class*query, class, window]
-        fc_scores = fc_scores.permute(0,2,1)                                       # [class*query, window, class]
-        fc_scores = F.softmax(fc_scores, dim=2)                                    # [class*query, window, class]
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
         
         # Clip-wise
         support_wc = support.permute(0,3,1,2,4).reshape(Q_num*C, W, CL, 1, FE)         # [class*query*class, window, clip, 1, feature]
@@ -197,17 +174,7 @@ class MultiRelationNetwork(nn.Module):
         ori_scores = F.relu(self.ori_fc2(ori_scores)).reshape(Q_num, W, C)             # [class*query, window, class]
         ori_scores = F.softmax(ori_scores, dim=2)                                      # [class*query, window, class]
 
-<<<<<<< HEAD
         final_scores = cw_scores + ori_scores + ip_scores  # [class*query, window, class]
         final_scores = F.softmax(final_scores, dim=2)      # [class*query, window, class]
 
         return final_scores
-=======
-        final_scores = cw_scores + ori_scores + fc_scores  # [class*query, window, class]
-        final_scores = F.softmax(final_scores, dim=2)      # [class*query, window, class]
-
-        return final_scores
-
-
-
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e

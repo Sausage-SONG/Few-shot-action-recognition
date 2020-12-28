@@ -2,23 +2,6 @@ import torch
 import numpy as np
 import os
 
-<<<<<<< HEAD
-=======
-def print_stage(name, length=65, character="-"):
-    Llength = int((length - len(name)) / 2)
-    Rlength = length - Llength - len(name)
-    print("\n" + character*Llength + name + character*Rlength)
-
-def print_debug(content, character="*"):
-    length = len(content) + 2
-    print(character*length)
-    print("{} DEBUG {}".format(character, character), end='')
-    print(character*(length - 9))
-    print(character*length)
-    print("{}{}{}".format(character, content, character))
-    print(character*length)
-
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 import scipy.stats
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0*np.array(data)
@@ -42,29 +25,6 @@ def compute_score(prediction, truth):
 # def compute_score(prediction, truth):
 #     return np.count_nonzero(prediction == truth) / len(prediction)
 
-<<<<<<< HEAD
-=======
-def write_log(content, end="\n", log_name='./log.txt'):
-    file = open(log_name, "a")
-    file.write(content+end)
-    file.close()
-
-def write_error(content, end="\n"):
-    file = open("error.txt", "a")
-    file.write(content+end)
-    file.close()
-
-import time
-def time_tick(name, t0=None):
-    if t0 is None:
-        return time.time()
-    t1 = time.time()
-    time_used = round(t1 - t0, 2)
-    content = "{} used {}s".format(name, time_used)
-    
-    return content, t1
-
->>>>>>> 9600d47f2f5e1e3e0932d09541f121528ccd979e
 from torch.nn.init import kaiming_normal_
 def weights_init(m):
     try:
