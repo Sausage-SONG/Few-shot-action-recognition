@@ -1,14 +1,28 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 import numpy as np
+import math
 
 import os
 import sys
 from collections import OrderedDict
 
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2. / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.fill_(1)
+        m.bias.data.zero_()
+    elif classname.find('Linear') != -1:
+        n = m.weight.size(1)
+        m.weight.data.normal_(0, 0.01)
+        m.bias.data = torch.ones(m.bias.data.size())
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
     
@@ -146,19 +160,19 @@ class InceptionI3d(nn.Module):
         super(InceptionI3d, self).__init__()
 
         
-        # 'Conv3d_1a_7x7'
+        'Conv3d_1a_7x7'
         self.l1 = Unit3D(in_channels=in_channels, output_channels=64, kernel_shape=[7, 7, 7], stride=(2, 2, 2), padding=(3,3,3))
         
-        # 'MaxPool3d_2a_3x3'
+        'MaxPool3d_2a_3x3'
         self.l2 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         
-        # 'Conv3d_2b_1x1'
+        'Conv3d_2b_1x1'
         self.l3 = Unit3D(in_channels=64, output_channels=64, kernel_shape=[1, 1, 1], padding=0)
       
-        # 'Conv3d_2c_3x3'
+        'Conv3d_2c_3x3'
         self.l4 = Unit3D(in_channels=64, output_channels=192, kernel_shape=[3, 3, 3], padding=1)
 
-        # 'MaxPool3d_3a_3x3'
+        'MaxPool3d_3a_3x3'
         self.l5 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         
         # 'Mixed_3b'
@@ -188,12 +202,12 @@ class InceptionI3d(nn.Module):
         # 'MaxPool3d_5a_2x2'
         self.l14 = MaxPool3dSamePadding(kernel_size=[2, 2, 2], stride=(2, 2, 2), padding=0)
 
-        # 'Mixed_5b'
-        self.l15 = InceptionModule(256+320+128+128, [256,160,320,32,128,128])
+        # # 'Mixed_5b'
+        # self.l15 = InceptionModule(256+320+128+128, [256,160,320,32,128,128])
 
-        # 'Mixed_5c'
-        # self.l16 = InceptionModule(256+320+128+128, [384,192,384,48,128,128])
-        self.l16 = InceptionModule(256+320+128+128, [96, 48, 96, 12, 32, 32])
+        # # 'Mixed_5c'
+        # # self.l16 = InceptionModule(256+320+128+128, [384,192,384,48,128,128])
+        # self.l16 = InceptionModule(256+320+128+128, [96, 48, 96, 12, 32, 32])
 
       
     def forward(self, x):
@@ -211,10 +225,32 @@ class InceptionI3d(nn.Module):
         x = self.l12(x)
         x = self.l13(x)
         x = self.l14(x)
-        x = self.l15(x)
-        x = self.l16(x)
+        # x = self.l15(x)
+        # x = self.l16(x)
 
         return x
-        
+
+
+class Simple3DEncoder(nn.Module):
+
+    def __init__(self, in_channels):
+        super(Simple3DEncoder, self).__init__()
+
+        self.l1 = Unit3D(in_channels=in_channels, output_channels=64, kernel_shape=[7, 7, 7], stride=(2, 2, 2), padding=(3,3,3))
+        self.l2 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
+        self.l3 = Unit3D(in_channels=64, output_channels=64, kernel_shape=[1, 1, 1], padding=0)
+        self.l4 = Unit3D(in_channels=64, output_channels=192, kernel_shape=[3, 3, 3], padding=1)
+        self.l5 = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
+
+        self.apply(weights_init)
+    
+    def forward(self, x):
+        x = self.l1(x)
+        x = self.l2(x)
+        x = self.l3(x)
+        x = self.l4(x)
+        x = self.l5(x)
+
+        return x
 
 
