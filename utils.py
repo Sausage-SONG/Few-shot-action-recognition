@@ -142,3 +142,8 @@ def ctc_predict_single(input):
     
     prediction = np.argmax(prediction, axis=1) + 1
     return prediction
+
+def my_load(model, name):
+    model_path = os.path.join(args.checkpoint, name)
+    if os.path.join(model_path):
+        model.load_state_dict(torch.load(model_path))

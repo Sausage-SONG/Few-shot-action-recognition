@@ -12,6 +12,7 @@ pytorch >= 1.5.0
 torchvision >= 0.6.0  
 numpy >= 1.18.1  
 scipy >= 1.4.1  
+[vidaug](https://github.com/okankop/vidaug) >= 0.1
 
 # Usage
 
@@ -31,13 +32,10 @@ As mentioned in the [intro](#semi-supervised-few-shot-atomic-action-recognition)
 
    TODO
 2. Train the whole model supervisedly.  
-   First modify the settings part in `config.py` then  
-   `python3 train.py`
+   `python3 train.py -d='./splits/<YOUR_DATASET>.json' -n='<EXP_NAME>'`
 
 ## Testing
-
-1. Modify the settings part of `test.py`
-2. `python3 test.py`
+`python3 test.py -d='./splits/<YOUR_DATASET>.json' -c='<CHECKPOINT_DIR>'`
 
 # Trained Models
 
@@ -45,15 +43,22 @@ TODO
 
 # Datasets
 
-TODO
+We use three atomic action datasets.
+1. [HAA](https://www.cse.ust.hk/haa/index.html)
+2. [Finegym](https://sdolivia.github.io/FineGym/)
+3. [MIT](http://moments.csail.mit.edu/)  
+
+Dataset splits and json files can be found under `<REPO_DIR>/splits`, see example dataset jsons or use the scripts there to generate your own. If you want to use other datasets, make sure it has a `<DATASET>/<SPLIT>/<CLASS>/<VIDEO>/<FRAME>` structure.
 
 # Acknowledge
 
 This repo makes use of some great work. Our appreciation for
 
 1. [locuslab / TCN](https://github.com/locuslab/TCN)
-2. [facebookresearch / moco](https://github.com/facebookresearch/moco)
-3. [parlance / ctcdecode](https://github.com/parlance/ctcdecode)
+2. [fujenchu / relationNet](https://github.com/dragen1860/LearningToCompare-Pytorch)
+3. [facebookresearch / moco](https://github.com/facebookresearch/moco)
+4. [parlance / ctcdecode](https://github.com/parlance/ctcdecode)
+5. [okankop / vidaug](https://github.com/okankop/vidaug)
 
 # Reference
 
