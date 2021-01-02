@@ -2,7 +2,7 @@
 
 This repo contains the codes for our paper "Semi-supervised Few-shot Atomic Action Recognition". Please check our [paper](https://arxiv.org/abs/2011.08410) and [project page](https://sausage-song.github.io/home/FSAA/) for more details.
 
-![FSAA Architecture](https://github.com/Sausage-SONG/Few-shot-action-recognition/raw/master/FSAA.jpg)
+![FSAA Architecture](https://github.com/Sausage-SONG/Few-shot-action-recognition/raw/master/FSAA.png)
 
 Our learning strategies are divided into two parts: 1) train an encoder with unsupervised learning; 2) train the action classification module with supervised learning. Regarding the encoder our model provides fine-grained spatial and temporal video processing with high length flexibility, which embeds the video feature and temporally combines the features with TCN. In terms of classification module, our models provides attention pooling and compares the multi-head relation. Finally, the CTC and MSE loss enables our model for time-invariant few shot classification training.
 
