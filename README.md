@@ -27,12 +27,23 @@ scipy >= 1.4.1
 
 As mentioned in the [intro](#semi-supervised-few-shot-atomic-action-recognition), our model training has two parts.
 
-1. Train the encoder unsupervisedly.  
-   Here we use [MoCo](https://github.com/facebookresearch/moco). However, this part can be done by actually any unsupervised learning tool.
+### 1. Train the encoder unsupervisedly. 
 
-   TODO
-2. Train the whole model supervisedly.  
-   `python3 train.py -d='./splits/<YOUR_DATASET>.json' -n='<EXP_NAME>'`
+Here we use [MoCo](https://github.com/facebookresearch/moco). However, this part can be done by actually any unsupervised learning tool.
+
+First clone [MoCo](https://github.com/facebookresearch/moco). Then do the following copy & replace:  
+
+```
+cp '<REPO_DIR>/moco/builder.py' '<MOCO_DIR>/moco/'
+cp '<REPO_DIR>/moco/{dataset.py,encoder.py,main_moco.py,moco_encoder.py,rename.py,tcn.py}' '<MOCO_DIR>/'
+```
+
+You are recommended to first read the instruction of MoCo to know more about how it works, then input the relevant paths to `main_moco.py` and start your training. You will need to use `rename.py` to split the trained model (a .tar file) to a `c3d.pkl` and `tcn.pkl` for the next step.
+
+### 2. Train the whole model supervisedly.  
+
+Load your pretrained C3D and TCN models and continue.  
+`python3 train.py -d='./splits/<YOUR_DATASET>.json' -n='<EXP_NAME>'`
 
 ## Testing
 `python3 test.py -d='./splits/<YOUR_DATASET>.json' -c='<CHECKPOINT_DIR>'`
@@ -52,7 +63,7 @@ Dataset splits and json files can be found under `<REPO_DIR>/splits`, see exampl
 
 # Acknowledge
 
-This repo makes use of some great work. Our appreciation for
+This repo makes use of some great works. Our appreciation for
 
 1. [locuslab / TCN](https://github.com/locuslab/TCN)
 2. [fujenchu / relationNet](https://github.com/dragen1860/LearningToCompare-Pytorch)
